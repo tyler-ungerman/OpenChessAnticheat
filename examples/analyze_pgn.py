@@ -25,6 +25,7 @@ from src.detectors import (  # noqa: E402
 )
 from src.detectors.reference_compare import compare_accounts, read_proxy_reference  # noqa: E402
 from src.detectors.move_evidence import build_game_evidence  # noqa: E402
+from src.detectors.screening_summary import build_screening_summary  # noqa: E402
 from src.engine import EngineConfig, evaluate_games_df  # noqa: E402
 from src.features import build_features  # noqa: E402
 from src.ingestion import parse_pgn_for_detection  # noqa: E402
@@ -386,23 +387,29 @@ def _print_diagnostic_games(scored_view, top: int, use_color: bool) -> None:
     print()
 
 
-def _print_product_summary(players_df, use_color: bool) -> None:
-    """Plain-language account summary; technical diagnostics remain opt-in."""
-    for row in players_df.to_dict(orient="records"):
-        total = int(row.get("games") or 0)
-        flagged = int(row.get("flagged_games") or 0)
-        verdict = str(row.get("account_verdict") or "")
-        if flagged == 0:
-            takeaway = "No individual games exceeded the review threshold."
-        elif flagged == 1:
-            takeaway = "One game exceeded the heuristic review threshold."
+def _print_product_summary(summaries: list[dict], use_color: bool) -> None:
+    """Single intuitive index followed by the top signal explanations."""
+    if not summaries:
+        print("  No eligible games for screening.\n")
+        return
+    print(_paint("Screening overview", _BOLD, use_color))
+    for row in summaries:
+        score = row["suspicion_index"]
+        print(f"  {row['player']} · {row['time_control']} · {row['games']} games")
+        print(f"    Suspicion index: {score}/100 ({row['suspicion_label']})"
+              f" · {row['review_games']} games crossed review thresholds")
+        top = row["indicator_shares"][:3]
+        if top:
+            print("    Main signals: " + ", ".join(
+                f"{item['signal']} ({item['share_percent']}% of positive signal)"
+                for item in top))
         else:
-            takeaway = f"{flagged} games exceeded the heuristic review threshold."
-        if verdict == "weak_cumulative_signal":
-            takeaway += " Weak accumulated pattern only."
-        print(f"  {row['player']} · {row['time_control']}: "
-              f"{total} games · {flagged} game outliers")
-        print(f"    {takeaway}")
+            print("    No positive anomaly signals identified.")
+        if row["review_games"] == 0:
+            print("    No individual games triggered a review warning.")
+        print()
+    print(_paint("  0-100 is a heuristic suspicion index, NOT a % chance of cheating.",
+                 _DIM, use_color))
     print()
 
 
@@ -510,6 +517,7 @@ def main() -> int:
     calibration = load_calibration()
     scored_df = score_games(features_df, eval_df=eval_df, calibration=calibration)
     players_df = aggregate_player_scores(scored_df, features_df=features_df)
+    screening = build_screening_summary(scored_df, player=args.player)
     if args.reference:
         if not args.platform:
             print("--platform chesscom|lichess required with --reference", file=sys.stderr)
@@ -542,7 +550,7 @@ def main() -> int:
         if args.technical:
             _print_player_cards(players_view, use_color)
         else:
-            _print_product_summary(players_view, use_color)
+            _print_product_summary(screening, use_color)
     else:
         players_view = players_df
         scored_view = scored_df
@@ -550,7 +558,7 @@ def main() -> int:
             _print_summary(players_df, use_color)
             _print_players_table(_ranked(players_df), args.top, use_color)
         else:
-            _print_product_summary(_ranked(players_df).head(args.top), use_color)
+            _print_product_summary(screening[:args.top], use_color)
 
     evidence = build_game_evidence(eval_df, scored_view, player=args.player,
                                    top_games=args.top_games, top_moves=args.top_moves)
@@ -581,6 +589,7 @@ def main() -> int:
                     "player_summary": records(players_view),
                     "game_scores": records(scored_view),
                     "move_evidence": evidence,
+                    "screening_overview": screening,
                 },
                 indent=2,
                 default=str,
