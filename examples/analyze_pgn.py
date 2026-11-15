@@ -385,6 +385,26 @@ def _print_diagnostic_games(scored_view, top: int, use_color: bool) -> None:
     print()
 
 
+def _print_product_summary(players_df, use_color: bool) -> None:
+    """Plain-language account summary; technical diagnostics remain opt-in."""
+    for row in players_df.to_dict(orient="records"):
+        total = int(row.get("games") or 0)
+        flagged = int(row.get("flagged_games") or 0)
+        verdict = str(row.get("account_verdict") or "")
+        if flagged == 0:
+            takeaway = "No individual games exceeded the review threshold."
+        elif flagged == 1:
+            takeaway = "One game exceeded the heuristic review threshold."
+        else:
+            takeaway = f"{flagged} games exceeded the heuristic review threshold."
+        if verdict == "weak_cumulative_signal":
+            takeaway += " Weak accumulated pattern only."
+        print(f"  {row['player']} · {row['time_control']}: "
+              f"{total} games · {flagged} game outliers")
+        print(f"    {takeaway}")
+    print()
+
+
 def _print_move_evidence(games: list[dict], use_color: bool) -> None:
     print(_paint("Games and moves to inspect", _BOLD, use_color))
     if not games:
@@ -518,12 +538,18 @@ def main() -> int:
             )
             return 1
         players_view = _ranked(players_view)
-        _print_player_cards(players_view, use_color)
+        if args.technical:
+            _print_player_cards(players_view, use_color)
+        else:
+            _print_product_summary(players_view, use_color)
     else:
         players_view = players_df
         scored_view = scored_df
-        _print_summary(players_df, use_color)
-        _print_players_table(_ranked(players_df), args.top, use_color)
+        if args.technical:
+            _print_summary(players_df, use_color)
+            _print_players_table(_ranked(players_df), args.top, use_color)
+        else:
+            _print_product_summary(_ranked(players_df).head(args.top), use_color)
 
     evidence = build_game_evidence(eval_df, scored_view, player=args.player,
                                    top_games=args.top_games, top_moves=args.top_moves)
