@@ -211,6 +211,8 @@ def run_collect(args: argparse.Namespace) -> int:
     root.mkdir(parents=True, exist_ok=True)
     if seed_bytes is not None:
         (root / "seed.pgn").write_bytes(seed_bytes)
+    status_dir = root / "status"
+    status_dir.mkdir()
     games_dir = root / "pgn"
     if args.fetch_games:
         games_dir.mkdir()
@@ -224,10 +226,13 @@ def run_collect(args: argparse.Namespace) -> int:
             response = json.loads(raw)
             label, quality = classify(platform, response)
             checked_at = datetime.now(timezone.utc).isoformat()
+            status_filename = digest(key.encode())[:20] + ".json"
+            (status_dir / status_filename).write_bytes(raw)
             row = {
                 "platform": platform, "player": user, "account_key": key,
                 "label": label, "label_quality": quality, "label_source": url,
                 "label_checked_at": checked_at, "status_sha256": digest(raw),
+                "status_path": "status/" + status_filename,
                 "split": split_for(key), "pgn_path": "", "pgn_sha256": "",
                 "games_requested": args.max_games if args.fetch_games else 0,
             }
@@ -273,6 +278,15 @@ def run_verify(args: argparse.Namespace) -> int:
         seen.add(key)
         if row["label"] not in (0, 1):
             raise ValueError("Invalid label")
+        status_file = (root / row["status_path"]).resolve()
+        if not status_file.is_relative_to(root.resolve()):
+            raise ValueError("Status path escapes snapshot")
+        status_bytes = status_file.read_bytes()
+        if digest(status_bytes) != row["status_sha256"]:
+            raise ValueError(f"Status-response checksum mismatch: {key}")
+        expected_label, expected_quality = classify(row["platform"], json.loads(status_bytes))
+        if (row["label"], row["label_quality"]) != (expected_label, expected_quality):
+            raise ValueError(f"Status label does not match saved response: {key}")
         if row["pgn_path"]:
             file = (root / row["pgn_path"]).resolve()
             if not file.is_relative_to(root.resolve()) or digest(file.read_bytes()) != row["pgn_sha256"]:
