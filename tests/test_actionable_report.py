@@ -57,9 +57,9 @@ class ReportTests(unittest.TestCase):
 
     def test_move_quality_detects_extreme_losses(self):
         moves = pd.DataFrame([
-            {"player": "target", "centipawn_loss": 3000, "move_time": None},
-            {"player": "target", "centipawn_loss": 2, "move_time": 5},
-            {"player": "other", "centipawn_loss": 0, "move_time": 5},
+            {"player": "target", "centipawn_loss": 3000, "time_spent": None},
+            {"player": "target", "centipawn_loss": 2, "time_spent": 5},
+            {"player": "other", "centipawn_loss": 0, "time_spent": 5},
         ])
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
