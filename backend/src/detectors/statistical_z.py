@@ -457,9 +457,14 @@ def aggregate_player_scores(
 
         # Heuristic priorities only. These are not cheat labels or guarantees of innocence.
         flagged_count = int((grp["status"] == "exploratory_outlier").sum())
-        if max_sprt_llr >= cfg.sprt_flag_llr or (flagged_count >= 2 and max_rolling_z >= 3.2):
+        # CUSUM/SPRT-style thresholds are heuristic and can accumulate many
+        # individually unremarkable games. Don't present a cumulative-only
+        # crossing as a game-supported statistical outlier.
+        if flagged_count == 0 and max_sprt_llr >= cfg.sprt_review_llr:
+            account_verdict = "weak_cumulative_signal"
+        elif max_sprt_llr >= cfg.sprt_flag_llr or (flagged_count >= 2 and max_rolling_z >= 3.2):
             account_verdict = "manual_review_recommended"
-        elif max_sprt_llr >= cfg.sprt_review_llr or flagged_count >= 1:
+        elif flagged_count >= 1:
             account_verdict = "statistical_outlier"
         else:
             account_verdict = "no_outlier_detected"

@@ -39,12 +39,14 @@ _CYAN = "\033[36m"
 _VERDICT_LABELS = {
     "manual_review_recommended": "Manual review recommended",
     "statistical_outlier": "Statistical outlier",
+    "weak_cumulative_signal": "Weak cumulative signal",
     "no_outlier_detected": "No outlier detected",
     "not_calibrated": "Not calibrated",
 }
 _VERDICT_COLORS = {
     "manual_review_recommended": _RED,
     "statistical_outlier": _YELLOW,
+    "weak_cumulative_signal": _DIM,
     "no_outlier_detected": _GREEN,
     "not_calibrated": _DIM,
 }
@@ -59,7 +61,8 @@ _STATUS_COLORS = {
 _PRIORITY = {
     "manual_review_recommended": 0,
     "statistical_outlier": 1,
-    "no_outlier_detected": 2,
+    "weak_cumulative_signal": 2,
+    "no_outlier_detected": 3,
 }
 
 
@@ -233,6 +236,7 @@ def _print_player_cards(players_view, use_color: bool) -> None:
         if int(row.get("flagged_games") or 0) == 0 and verdict in {
             "manual_review_recommended",
             "statistical_outlier",
+            "weak_cumulative_signal",
         }:
             print(
                 _paint(
@@ -423,6 +427,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--multipv", type=int, default=3, help="MultiPV lines (default: 3)")
     parser.add_argument("--workers", type=int, default=4, help="Stockfish worker processes (default: 4)")
     parser.add_argument("--no-cache", action="store_true", help="Ignore the on-disk evaluation cache")
+    parser.add_argument("--exclude-opponent", action="append", default=[], metavar="USERNAME",
+                        help="Exclude all games involving a named opponent (repeatable)")
     parser.add_argument("--reference", type=Path, help="Optional frozen proxy reference JSON; never required")
     parser.add_argument("--platform", choices=("chesscom", "lichess"),
                         help="Platform of the PGN account; required with --reference")
@@ -444,7 +450,12 @@ def main() -> int:
         print(f"PGN not found: {args.pgn}", file=sys.stderr)
         return 2
 
-    raw_df = parse_pgn_for_detection(str(args.pgn))
+    raw_df = parse_pgn_for_detection(
+        str(args.pgn), extra_bot_names=set(args.exclude_opponent)
+    )
+    if args.exclude_opponent:
+        print("[game_history] Explicit opponent exclusions: "
+              + ", ".join(sorted(args.exclude_opponent)))
     if raw_df.empty:
         print("No games found in the PGN.", file=sys.stderr)
         return 1
