@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install -r requirements.txt
-          python -m pip install 'scikit-learn>=1.4,<1.9'
+          python -m pip install 'scikit-learn>=1.4,<1.9' 'datasets>=3,<6'
       - name: Verify inference contracts
         run: python -m unittest discover -s tests -p 'test_pretrained_contract.py' -v
       - name: Train and evaluate on player-disjoint controlled cases
