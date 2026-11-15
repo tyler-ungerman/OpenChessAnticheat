@@ -1,0 +1,32 @@
+name: Evaluate synthetic-to-real chess move transfer
+on:
+  push:
+    branches: [experiment/synth-blitz-transfer]
+    paths:
+      - 'scripts/experiment_synth_transfer.py'
+      - '.github/workflows/synth-transfer.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          python -m pip install -r requirements.txt
+          python -m pip install 'scikit-learn>=1.4,<1.9' 'datasets>=3,<6'
+      - name: Test synthetic multi-format training on real held-out assistance
+        run: |
+          python scripts/experiment_synth_transfer.py \
+            --max-positions 50000 \
+            --out data/synth_transfer.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chess-synthetic-transfer-metrics
+          path: data/synth_transfer.json
