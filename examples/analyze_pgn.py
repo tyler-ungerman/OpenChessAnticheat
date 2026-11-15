@@ -26,7 +26,9 @@ from src.detectors import (  # noqa: E402
 from src.detectors.reference_compare import compare_accounts, read_proxy_reference  # noqa: E402
 from src.detectors.move_evidence import build_game_evidence  # noqa: E402
 from src.detectors.screening_summary import build_screening_summary  # noqa: E402
-from src.detectors.pretrained_inference import load_pretrained_model, score_pgn_games  # noqa: E402
+from src.detectors.pretrained_inference import (  # noqa: E402
+    load_pretrained_model, score_pgn_games, eligible_game_diagnostics,
+)
 from src.engine import EngineConfig, evaluate_games_df  # noqa: E402
 from src.features import build_features  # noqa: E402
 from src.ingestion import parse_pgn_for_detection  # noqa: E402
@@ -441,7 +443,8 @@ def _print_pretrained_scores(games: list[dict], model: dict | None,
     print(_paint("Experimental pretrained assistance model (5-minute blitz only)",
                  _BOLD, use_color))
     if not games:
-        print("  No eligible 300+0 games with at least 12 evaluated moves.\n")
+        print("  No eligible 5+0 games with at least 12 evaluated moves.")
+        print("  Other blitz formats (e.g. 3+0 or 3+2) are NOT supported by this model.")
         return
     for item in games[:8]:
         print(f"  Game {item['game_id']}: {item['experimental_assistance_score']:.1f}/100"
