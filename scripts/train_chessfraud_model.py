@@ -152,6 +152,8 @@ def train(frame: pd.DataFrame, source_sha: str, *, min_auc: float = 0.60,
         },
         "baseline_test_auc": round(float(baseline_auc), 4),
         "passed_release_gate": passed,
+        "passed_experimental_gate": bool(test["roc_auc"] >= 0.65),
+        "beats_simple_baseline": bool(test["roc_auc"] >= baseline_auc + min_gain),
         "gate": f"test_auc >= {min_auc} and gain >= {min_gain} against top1-only baseline",
         "warnings": [
             "Positive label means controlled tournament assistance, not public platform guilt",
@@ -170,6 +172,9 @@ def main():
     parser.add_argument("--metrics", type=Path, required=True)
     parser.add_argument("--min-auc", type=float, default=0.60)
     parser.add_argument("--min-gain", type=float, default=0.02)
+    parser.add_argument("--experimental-release", action="store_true",
+                        help="Publish an OPT-IN experimental model if test AUC >= 0.65; "
+                             "never a primary detector without baseline improvement")
     args = parser.parse_args()
     if args.csv:
         raw = args.csv.read_bytes()
@@ -189,12 +194,17 @@ def main():
     args.metrics.parent.mkdir(parents=True, exist_ok=True)
     args.metrics.write_text(json.dumps(metrics, indent=2, allow_nan=False) + "\n")
     print(json.dumps(metrics, indent=2, allow_nan=False), flush=True)
-    if metrics["passed_release_gate"]:
+    primary = metrics["passed_release_gate"]
+    experimental = args.experimental_release and metrics["passed_experimental_gate"]
+    if primary or experimental:
+        model["status"] = ("experimental_primary_candidate" if primary
+                           else "experimental_only_baseline_not_beaten")
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(model, indent=2, allow_nan=False) + "\n")
-        print(f"PASS: exportable model written to {args.out}")
+        print(f"EXPERIMENTAL MODEL EXPORTED: {args.out} "
+              f"(primary baseline gate: {'PASS' if primary else 'FAIL'})")
     else:
-        print("NO SHIP: model did not beat baseline under the predetermined gate")
+        print("NO MODEL: candidate failed chosen release gate")
     return 0
 
 
