@@ -25,6 +25,7 @@ from src.detectors import (  # noqa: E402
 )
 from src.detectors.reference_compare import compare_accounts, read_proxy_reference  # noqa: E402
 from src.detectors.move_evidence import build_game_evidence  # noqa: E402
+from src.detectors.history_assessment import summarize_history  # noqa: E402
 from src.detectors.screening_summary import build_screening_summary  # noqa: E402
 from src.detectors.pretrained_inference import load_pretrained_model, score_pgn_games  # noqa: E402
 from src.engine import EngineConfig, evaluate_games_df  # noqa: E402
@@ -417,9 +418,14 @@ def _print_product_summary(summaries: list[dict], use_color: bool) -> None:
 def _print_move_evidence(games: list[dict], use_color: bool) -> None:
     print(_paint("Games and moves to inspect", _BOLD, use_color))
     if not games:
-        print("  No eligible game evidence available.")
+        print("  No notable moves found in the analyzed games.")
         return
-    for rank, game in enumerate(games, 1):
+    interesting = [game for game in games if game["candidate_count"] > 0]
+    if not interesting:
+        print("  No games contain qualifying non-opening engine-first decisions.")
+        print()
+        return
+    for rank, game in enumerate(interesting, 1):
         print(f"  {rank}. Game {game['game_id']} · {game.get('date') or 'unknown date'}"
               f" · vs {game.get('opponent') or 'unknown'}"
               f" · {game.get('time_control') or 'unknown'}"
@@ -581,7 +587,6 @@ def main() -> int:
         players_view = _ranked(players_view)
         if args.technical:
             _print_player_cards(players_view, use_color)
-        else:
             _print_product_summary(screening, use_color)
     else:
         players_view = players_df
@@ -592,8 +597,20 @@ def main() -> int:
         else:
             _print_product_summary(screening[:args.top], use_color)
 
-    evidence = build_game_evidence(eval_df, scored_view, player=args.player,
-                                   top_games=args.top_games, top_moves=args.top_moves)
+    # Evaluate all target games before selecting a display shortlist, so
+    # a weak anomaly score cannot hide a genuinely interesting sequence.
+    all_evidence = build_game_evidence(
+        eval_df, scored_view, player=args.player,
+        top_games=len(scored_view), top_moves=args.top_moves,
+    )
+    assessment = summarize_history(all_evidence)
+    print(_paint("Overall account assessment", _BOLD, use_color))
+    print(f"  {assessment['assessment']} · {assessment['games']} "
+          f"{'game' if assessment['games'] == 1 else 'games'}"
+          f" · {assessment['games_with_candidates']} games with notable moves")
+    print(f"  {assessment['interpretation']}")
+    print()
+    evidence = [game for game in all_evidence if game["candidate_count"] > 0][:args.top_games]
     _print_move_evidence(evidence, use_color)
     _print_pretrained_scores(experimental_scores, pretrained, use_color)
     if args.technical:
@@ -622,6 +639,7 @@ def main() -> int:
                     "player_summary": records(players_view),
                     "game_scores": records(scored_view),
                     "move_evidence": evidence,
+                    "history_assessment": assessment,
                     "screening_overview": screening,
                     "pretrained_game_scores": experimental_scores,
                 },

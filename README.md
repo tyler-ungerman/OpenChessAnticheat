@@ -1,5 +1,28 @@
 # OpenChessAnticheat — PGN investigation
 
+## Simple everyday detection workflow
+
+```bash
+python examples/analyze_pgn.py data/personal/games.pgn --player tyrjung
+```
+
+Install the four CLI Python dependencies with `pip install -r requirements-cli.txt` and
+install Stockfish (`brew install stockfish` on macOS). No API server or ML
+training libraries are needed.
+
+One command, no calibration, no training or model downloads. Stockfish analyzes
+uncached positions once; future runs reuse evaluations. The default report
+summarizes the account and prioritizes games with actual, replayable
+engine-matching decisions, not statistical Z-score spikes. It covers bullet,
+blitz and rapid from the same PGN. No single move is a cheating verdict; an
+account review recommendation requires multiple qualifying games. The
+experimental pretrained 5+0-only model is still available behind
+`--experimental-model`, but is not the default and does not cover 3+0/10+0.
+
+`--technical` reveals legacy diagnostics. `--json-out results.json` stores
+candidate moves, FENs, and the overall account assessment.
+
+
 Identify the games and **specific moves** worth reviewing in a chess account's PGN history.
 
 ```bash

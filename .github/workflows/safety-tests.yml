@@ -1,7 +1,7 @@
 name: Safety regression tests
 on:
   push:
-    branches: ["main", "fix/uncalibrated-verdict-safety", "feat/reproducible-public-calibration-datasets"]
+    branches: ["main", "fix/uncalibrated-verdict-safety", "feat/reproducible-public-calibration-datasets", "feat/simple-evidence-first-screening"]
   pull_request:
   workflow_dispatch:
 jobs:
@@ -15,3 +15,19 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: python -m unittest discover -s tests -v
+      - name: PGN -> Stockfish -> evidence-first report smoke test
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq stockfish
+          python -m venv /tmp/openchess-cli-only
+          /tmp/openchess-cli-only/bin/python -m pip install -r requirements-cli.txt
+          /tmp/openchess-cli-only/bin/python examples/analyze_pgn.py examples/model_smoke_300.pgn --player alice --depth 3 --workers 2 --json-out /tmp/evidence_report.json
+          python - <<'PY'
+          import json
+          report = json.load(open("/tmp/evidence_report.json"))
+          assessment = report["history_assessment"]
+          assert assessment["games"] == 1, assessment
+          assert assessment["assessment"] == "Limited history"
+          assert isinstance(report["move_evidence"], list)
+          print("END-TO-END PASS", assessment)
+          PY

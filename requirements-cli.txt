@@ -1,0 +1,6 @@
+# Lightweight PGN CLI only; the optional API server and training toolchains
+# have separate dependencies in requirements.txt / training workflows.
+pandas
+numpy
+scipy
+chess
