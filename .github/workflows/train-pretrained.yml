@@ -1,0 +1,60 @@
+name: Train controlled-assistance model
+on:
+  push:
+    branches: [feat/pretrained-game-classifier]
+    paths:
+      - 'scripts/train_chessfraud_model.py'
+      - 'backend/src/detectors/pretrained_features.py'
+      - 'backend/src/detectors/pretrained_inference.py'
+      - 'tests/test_pretrained_contract.py'
+      - '.github/workflows/train-pretrained.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install 'scikit-learn>=1.4,<1.9'
+      - name: Verify inference contracts
+        run: python -m unittest discover -s tests -p 'test_pretrained_contract.py' -v
+      - name: Train and evaluate on player-disjoint controlled cases
+        run: |
+          python scripts/train_chessfraud_model.py \
+            --out backend/models/chessfraud_v1.json \
+            --metrics data/pretrained_evaluation.json
+      - name: Upload evaluation evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chessfraud-evaluation
+          path: |
+            data/pretrained_evaluation.json
+            backend/models/chessfraud_v1.json
+          if-no-files-found: warn
+      - name: Publish weights only after evaluation gate passes
+        if: success()
+        run: |
+          if [ ! -f backend/models/chessfraud_v1.json ]; then
+            echo "NO SHIP: candidate failed benchmark gate"
+            exit 0
+          fi
+          mkdir -p backend/models
+          cp data/pretrained_evaluation.json backend/models/chessfraud_v1_metrics.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/models/chessfraud_v1.json backend/models/chessfraud_v1_metrics.json
+          git commit -m "Ship gated ChessFraud pretrained model and held-out metrics"
+          git push
