@@ -484,7 +484,7 @@ def aggregate_player_scores(
                 "mean_acpl": round(float(grp["acpl"].dropna().mean()), 2),
                 "mean_capped_acpl": round(float(grp["capped_acpl"].dropna().mean()), 2) if "capped_acpl" in grp and grp["capped_acpl"].notna().any() else None,
                 "median_game_acpl": round(float(grp["acpl"].dropna().median()), 2),
-                "top1_rate": round(float(grp["top1_rate"].dropna().mean()), 4) if grp["top1_rate"].notna().any() else None,
+                "top1_rate": round(float(grp["top1_rate"].dropna().mean()), 4) if "top1_rate" in grp and grp["top1_rate"].notna().any() else None,
                 "mean_blunder_rate": round(float(grp["blunder_rate"].dropna().mean()), 4) if "blunder_rate" in grp and grp["blunder_rate"].notna().any() else None,
                 "mean_z": round(float(np.mean(z_vals)), 3),
                 "max_single_z": round(float(np.max(z_vals)), 3),
