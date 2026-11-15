@@ -116,4 +116,4 @@ file, scoring falls back to Elo-based curves.
 
 - `game_style_fingerprint` needs at least two games per player for a nonzero deviation. Its
   `maia_likelihood` metric stays 0 unless the evaluation data includes a `maia_probability` column.
-- `backend/main.py` is a local scratch runner and is gitignored.
+
