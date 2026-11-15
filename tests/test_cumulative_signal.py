@@ -13,7 +13,7 @@ class CumulativeAlertsTests(unittest.TestCase):
         rows = pd.DataFrame([
             {"game_id": f"g{i}", "date": f"2026-11-{i+1:02d}",
              "time_control": "rapid", "player": "target", "elo": 600,
-             "acpl": 70.0, "color": "White", "composite_z": 0.8,
+             "acpl": 70.0, "color": "White", "composite_z": 1.0,
              "status": "no_outlier_detected"}
             for i in range(15)
         ])
