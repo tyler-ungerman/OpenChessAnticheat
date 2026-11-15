@@ -125,7 +125,7 @@ def classify(platform: str, payload: dict) -> tuple[int, str]:
         status = str(payload.get("status", "")).lower()
         if status == "closed:fair_play_violations":
             return 1, "platform_fair_play_closure"
-        if status in {"premium", "basic", "staff", "closed"}:
+        if status in {"premium", "basic", "staff", "mod", "closed"}:
             return 0, "unconfirmed_not_clean"
         raise ValueError(f"Unrecognized Chess.com status: {status!r}")
     if payload.get("tosViolation") is True:
