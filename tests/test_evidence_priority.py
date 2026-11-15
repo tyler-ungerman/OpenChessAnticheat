@@ -45,21 +45,29 @@ class EvidencePriorityTests(unittest.TestCase):
 
     def test_account_assessment_counts_repeated_games(self):
         records = [
-            {"candidate_count": 2, "time_control": "blitz"},
-            {"candidate_count": 2, "time_control": "rapid"},
-            {"candidate_count": 2, "time_control": "bullet"},
+            {"candidate_count": 2, "time_control": "blitz", "game_status": "exploratory_review"},
+            {"candidate_count": 2, "time_control": "rapid", "game_status": "exploratory_review"},
+            {"candidate_count": 2, "time_control": "bullet", "game_status": "no_outlier_detected"},
         ] + [{"candidate_count": 0, "time_control": "blitz"}] * 7
         result = summarize_history(records)
         self.assertEqual(result["assessment"], "Review recommended")
         self.assertEqual(result["games_with_repeated_candidates"], 3)
         self.assertEqual(result["candidate_moves"], 6)
+        self.assertEqual(result["game_review_alerts"], 2)
         self.assertNotIn("cheat_probability", result)
+
+    def test_many_precise_games_without_game_level_alerts_do_not_imply_cheating(self):
+        records = [{"candidate_count": 3, "time_control": "rapid",
+                    "game_status": "no_outlier_detected"} for _ in range(100)]
+        summary = summarize_history(records)
+        self.assertEqual(summary["assessment"], "Moves worth examining")
+        self.assertEqual(summary["game_review_alerts"], 0)
 
     def test_single_good_game_does_not_trigger_account_review(self):
         records = [{"candidate_count": 4, "time_control": "rapid"}]
         records += [{"candidate_count": 0, "time_control": "rapid"}] * 29
         result = summarize_history(records)
-        self.assertEqual(result["assessment"], "No sustained indicators")
+        self.assertEqual(result["assessment"], "Moves worth examining")
 
 
 if __name__ == "__main__":
