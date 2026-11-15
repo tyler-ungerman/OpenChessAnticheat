@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# Local scratch runner
+backend/main.py
+
+# Fetched or generated data
+datasets/games.pgn
+datasets/controls/
+data/
+
+# Engine evaluation cache
+backend/.cache/
+
+detection-ideas.txt
