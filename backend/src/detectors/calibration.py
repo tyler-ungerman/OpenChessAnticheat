@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import math
+
+from .base import MIN_SIGMA
 from pathlib import Path
 from typing import Any
 
@@ -178,8 +180,9 @@ def _lookup_cohort_z(
         return None
 
     med, sigma = stats_map[metric]
-    z = (float(value) - med) / max(sigma, 1e-4)
-    return z if higher_is_suspicious else -z
+    z = (float(value) - med) / max(float(sigma), MIN_SIGMA.get(metric, 0.05))
+    oriented = z if higher_is_suspicious else -z
+    return float(max(-6.0, min(6.0, oriented)))
 
 
 def _expected_acpl_for_elo(elo: float | None, time_control: str) -> float:
