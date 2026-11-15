@@ -1,7 +1,7 @@
 # Chess Fair-Play Detection
 
 Behavioral screening for chess games. Stockfish evaluates every move, engineered
-features summarize how a player performs under pressure, and three detectors flag
+features summarize how a player performs under pressure, and behavioral detectors flag
 statistical outliers against personal history and a rating-matched control cohort.
 
 ## What it does
