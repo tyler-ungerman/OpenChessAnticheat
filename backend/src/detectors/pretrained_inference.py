@@ -25,7 +25,10 @@ def load_pretrained_model(path: Path | str = DEFAULT_MODEL_PATH) -> dict | None:
     model = json.loads(file.read_text(encoding="utf-8"))
     if model.get("schema") != SCHEMA or model.get("model_features") != list(FEATURE_NAMES):
         raise ValueError("Pretrained model has incompatible schema or feature set")
-    for name in ("impute_medians", "scale_means", "scale_std", "coefficients"):
+    family = model.get("model_family", "logistic")
+    if family not in {"logistic", "random_forest"}:
+        raise ValueError("Unsupported pretrained model family")
+    for name in ("impute_medians", "scale_means", "scale_std"):
         arr = model.get(name)
         if not isinstance(arr, list) or len(arr) != len(FEATURE_NAMES):
             raise ValueError(f"Incompatible pretrained parameter {name}")
@@ -33,8 +36,13 @@ def load_pretrained_model(path: Path | str = DEFAULT_MODEL_PATH) -> dict | None:
             raise ValueError(f"Invalid pretrained parameter {name}")
     if any(float(x) <= 0 for x in model["scale_std"]):
         raise ValueError("Invalid feature scales")
-    if not math.isfinite(float(model.get("intercept", math.nan))):
-        raise ValueError("Invalid model intercept")
+    if family == "logistic":
+        if len(model.get("coefficients", [])) != len(FEATURE_NAMES):
+            raise ValueError("Invalid logistic weights")
+        if not math.isfinite(float(model.get("intercept", math.nan))):
+            raise ValueError("Invalid model intercept")
+    elif not isinstance(model.get("trees"), list) or not model["trees"]:
+        raise ValueError("Missing forest trees")
     if model.get("time_control") != "300+0":
         raise ValueError("Unsupported model time control")
     return model
@@ -48,10 +56,21 @@ def predict_feature_score(features: dict[str, float], model: dict) -> float:
         if not math.isfinite(val):
             val = float(model["impute_medians"][index])
         x.append((val - float(model["scale_means"][index])) / float(model["scale_std"][index]))
+    if model.get("model_family", "logistic") == "random_forest":
+        scores = []
+        for tree in model["trees"]:
+            node = 0
+            while int(tree["left"][node]) != -1:
+                feature = int(tree["feature"][node])
+                if feature < 0 or feature >= len(x):
+                    raise ValueError("Invalid tree feature index")
+                node = int(tree["left"][node] if x[feature] <= tree["threshold"][node]
+                           else tree["right"][node])
+            scores.append(float(tree["positive"][node]))
+        return float(100 * sum(scores) / len(scores))
     logit = float(model["intercept"]) + sum(
         float(weight) * value for weight, value in zip(model["coefficients"], x)
     )
-    # Numerical-stable sigmoid; 0–100 relative output, not population-calibrated.
     logit = min(30.0, max(-30.0, logit))
     return float(100.0 / (1.0 + math.exp(-logit)))
 
