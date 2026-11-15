@@ -7,13 +7,13 @@ engine parameters are recorded; scores are research features, not cheat verdicts
 from __future__ import annotations
 
 import argparse
-import csv
 import hashlib
 import io
 import json
 import os
 import platform as system_platform
 import subprocess
+import shutil
 import sys
 from pathlib import Path
 
@@ -85,7 +85,10 @@ def main() -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     reports_dir = args.out / "reports"
     reports_dir.mkdir()
-    engine_binary = args.stockfish or os.environ.get("STOCKFISH_PATH") or "stockfish"
+    engine_binary = args.stockfish or os.environ.get("STOCKFISH_PATH") or shutil.which("stockfish") or "stockfish"
+    engine_resolved = shutil.which(engine_binary)
+    if engine_resolved is None:
+        raise ValueError("Stockfish is required; install it or specify --stockfish /path/to/stockfish")
     try:
         engine_result = subprocess.run([engine_binary, "--help"], capture_output=True,
                                        text=True, timeout=15, check=False)
@@ -100,12 +103,18 @@ def main() -> int:
         "source_git_commit": git.stdout.strip() if git.returncode == 0 else "unknown",
         "python_version": sys.version,
         "platform": system_platform.platform(),
-        "engine_binary": engine_binary,
+        "engine_binary": str(Path(engine_resolved).resolve()),
+        "python_executable": sys.executable,
+        "dependency_versions": subprocess.run(
+            [sys.executable, "-m", "pip", "freeze"], capture_output=True,
+            text=True, check=False, timeout=30
+        ).stdout.splitlines(),
         "engine_version_output": engine_fingerprint,
         "engine_binary_sha256": (
-            sha256_file(Path(engine_binary)) if Path(engine_binary).is_file() else None
+            sha256_file(Path(engine_resolved))
         ),
         "depth": args.depth, "workers": args.workers,
+        "multipv": 3, "shallow_depth": 6, "use_cache": True,
         "games_per_time_control": args.games_per_time_control,
         "evaluation_code_sha256": sha256_file(root / "backend/src/engine/evaluation.py"),
         "scoring_code_sha256": sha256_file(root / "backend/src/detectors/statistical_z.py"),
@@ -114,8 +123,7 @@ def main() -> int:
         "failures": [],
     }
     env = os.environ.copy()
-    if args.stockfish:
-        env["STOCKFISH_PATH"] = args.stockfish
+    env["STOCKFISH_PATH"] = str(Path(engine_resolved).resolve())
     for row in manifest["accounts"]:
         relative = row.get("pgn_path")
         if not relative:
