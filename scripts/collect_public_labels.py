@@ -14,6 +14,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -183,17 +184,36 @@ def export_games(client: PublicClient, platform: str, user: str, max_games: int)
 
 
 def run_collect(args: argparse.Namespace) -> int:
-    accounts = load_accounts(args.accounts, args.seed_pgn, args.platform, args.max_accounts)
+    client = PublicClient(args.user_agent, args.pause)
+    seed_bytes = None
+    seed_paths = list(args.seed_pgn)
+    if args.seed_user:
+        if not args.platform:
+            raise ValueError("--platform required with --seed-user")
+        platform, user = validate_account(args.platform, args.seed_user)
+        seed_bytes = export_games(client, platform, user, min(500, args.max_games * 4))
+        if not seed_bytes.strip():
+            raise ValueError("Seed user has no downloadable public games")
+        with tempfile.NamedTemporaryFile(suffix=".pgn", delete=False) as tmp:
+            tmp.write(seed_bytes)
+            seed_paths.append(Path(tmp.name))
+        try:
+            accounts = load_accounts(args.accounts, seed_paths, args.platform, args.max_accounts)
+        finally:
+            seed_paths[-1].unlink(missing_ok=True)
+    else:
+        accounts = load_accounts(args.accounts, seed_paths, args.platform, args.max_accounts)
     if not accounts:
         raise ValueError("No valid public accounts found")
     root = args.out
     if root.exists() and any(root.iterdir()):
         raise ValueError("Output directory is not empty; use a new snapshot directory")
     root.mkdir(parents=True, exist_ok=True)
+    if seed_bytes is not None:
+        (root / "seed.pgn").write_bytes(seed_bytes)
     games_dir = root / "pgn"
     if args.fetch_games:
         games_dir.mkdir()
-    client = PublicClient(args.user_agent, args.pause)
     rows = []
     failures = []
     for platform, user in accounts:
@@ -229,6 +249,7 @@ def run_collect(args: argparse.Namespace) -> int:
     manifest = {"schema": SCHEMA, "source": "platform_public_api",
                 "label_definition": "1=public closure/status indicator; 0=unconfirmed, not clean",
                 "snapshot_created_at": datetime.now(timezone.utc).isoformat(),
+                "seed_pgn_sha256": digest(seed_bytes) if seed_bytes is not None else None,
                 "accounts": rows, "failures": failures}
     (root / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     print(f"Saved {len(rows)} accounts; positive platform indicators: {sum(x['label'] for x in rows)}; "
@@ -241,6 +262,9 @@ def run_verify(args: argparse.Namespace) -> int:
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("schema") != SCHEMA:
         raise ValueError("Unknown manifest schema")
+    if manifest.get("seed_pgn_sha256"):
+        if digest((root / "seed.pgn").read_bytes()) != manifest["seed_pgn_sha256"]:
+            raise ValueError("Seed PGN checksum mismatch")
     seen = set()
     for row in manifest["accounts"]:
         key = account_key(*validate_account(row["platform"], row["player"]))
@@ -263,7 +287,8 @@ def build_parser() -> argparse.ArgumentParser:
     c = sub.add_parser("collect", help="Snapshot live public account statuses and optionally games")
     c.add_argument("--accounts", type=Path, help="CSV columns: platform,player")
     c.add_argument("--seed-pgn", type=Path, action="append", default=[], help="Discover public accounts from PGN")
-    c.add_argument("--platform", choices=("chesscom", "lichess"), help="Platform for --seed-pgn")
+    c.add_argument("--platform", choices=("chesscom", "lichess"), help="Platform for seed accounts")
+    c.add_argument("--seed-user", help="Fetch this user's public games as the seed (no seed PGN needed)")
     c.add_argument("--out", type=Path, required=True, help="NEW snapshot directory")
     c.add_argument("--user-agent", required=True, help="Descriptive agent name and contact details")
     c.add_argument("--max-accounts", type=int, default=200)
