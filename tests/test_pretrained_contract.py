@@ -19,7 +19,9 @@ class PretrainedContractTests(unittest.TestCase):
                 "player_id": 11, "game_id": "g1", "is_cheating_player_game": True,
                 "time_control": "300+0", "is_used": True,
                 "move_player": "e2e4" if i % 2 else "d2d4",
-                "move_stockfish_15": "e2e4", "centipawn_loss": i*3,
+                "move_stockfish_15": "e2e4", "move_stockfish_9": "d2d4",
+                "eval_before": 5, "half_move": 2*i+1,
+                "centipawn_loss": i*3,
                 "move_thinking_time": float(i+1),
             })
         source = pd.DataFrame(rows)
@@ -27,6 +29,8 @@ class PretrainedContractTests(unittest.TestCase):
         local = pd.DataFrame([{
             "game_id": 7, "player": "alice", "time_control": "300+0",
             "move_uci": r["move_player"], "best_move": r["move_stockfish_15"],
+            "shallow_best_move": r["move_stockfish_9"], "eval_before": r["eval_before"],
+            "ply": r["half_move"],
             "centipawn_loss": r["centipawn_loss"],
             "time_spent": r["move_thinking_time"],
         } for r in rows])
@@ -43,6 +47,7 @@ class PretrainedContractTests(unittest.TestCase):
         rows = pd.DataFrame([{
             "game_id": 1, "player": "alice", "time_control": "180+0",
             "move_uci": "e2e4", "best_move": "e2e4",
+            "shallow_best_move": "e2e4", "eval_before": 0, "ply": 21,
             "centipawn_loss": 0, "time_spent": 2.0,
         }] * 20)
         model = {"schema": "openchess-chessfraud-game-logistic-v1",
