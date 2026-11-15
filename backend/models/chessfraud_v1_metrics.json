@@ -1,0 +1,53 @@
+{
+  "dataset_rows": 38510,
+  "eligible_player_games": 941,
+  "unique_players": 49,
+  "source_sha256": "5eee12c3ea5ff531014f00cdf0b7c81d07cebe468d0be76085fe8c3222eea1a4",
+  "split_counts": {
+    "train": {
+      "players": 29,
+      "games": 539
+    },
+    "validation": {
+      "players": 10,
+      "games": 219
+    },
+    "test": {
+      "players": 10,
+      "games": 183
+    }
+  },
+  "validation": {
+    "n_games": 219,
+    "positive_games": 86,
+    "n_negative_games": 133,
+    "roc_auc": 0.7677,
+    "average_precision": 0.7145,
+    "brier_score": 0.1858
+  },
+  "test": {
+    "n_games": 183,
+    "positive_games": 77,
+    "n_negative_games": 106,
+    "roc_auc": 0.68,
+    "average_precision": 0.6185,
+    "brier_score": 0.2284
+  },
+  "selected_family": "logistic",
+  "json_inference_replay_checked": 32,
+  "candidate_validation_auc": {
+    "logistic": 0.7677,
+    "random_forest": 0.7641
+  },
+  "baseline_test_auc": 0.6696,
+  "passed_release_gate": false,
+  "passed_experimental_gate": true,
+  "beats_simple_baseline": false,
+  "gate": "test_auc >= 0.6 and gain >= 0.02 against top1-only baseline",
+  "warnings": [
+    "Positive label means controlled tournament assistance, not public platform guilt",
+    "Player-disjoint test remains small and only covers 300+0 blitz",
+    "Probability is conditional on benchmark's artificial assisted-play prevalence",
+    "Inference Stockfish version/depth may differ from tournament benchmark"
+  ]
+}
