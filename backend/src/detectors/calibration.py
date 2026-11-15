@@ -150,6 +150,17 @@ def load_calibration(
     return cal
 
 
+def cohort_time_controls(calibration: dict[str, Any]) -> set[str]:
+    """Time controls for which a loaded calibration has any cohort statistics."""
+    tcs = {str(tc) for tc in (calibration.get("global_tc") or {})}
+    tcs.update(
+        str(key[0])
+        for key in (calibration.get("buckets") or {})
+        if isinstance(key, tuple) and key
+    )
+    return tcs
+
+
 def _lookup_cohort_z(
     value: float | None,
     metric: str,

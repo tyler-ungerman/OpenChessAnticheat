@@ -5,8 +5,13 @@ import numpy as np
 import pandas as pd
 
 from backend.src.detectors.base import MIN_SIGMA
-from backend.src.detectors.statistical_z import _combine_z_scores, _robust_z, aggregate_player_scores
-from backend.src.detectors.calibration import _lookup_cohort_z
+from backend.src.detectors.statistical_z import (
+    _combine_z_scores,
+    _robust_z,
+    aggregate_player_scores,
+    score_games,
+)
+from backend.src.detectors.calibration import _lookup_cohort_z, cohort_time_controls
 from backend.src.detectors.validation import empirical_account_tail, validate_label_manifest
 
 
@@ -70,6 +75,41 @@ class SafetyTests(unittest.TestCase):
         ])
         with self.assertRaises(ValueError):
             validate_label_manifest(manifest)
+
+    def test_cohort_status_requires_matching_time_control(self):
+        metrics = ("capped_acpl", "top1_rate", "critical_top1_rate", "quiet_critical_top1_rate",
+                   "fast_critical_top1_rate", "choice_sensitivity_s", "mean_machine_surprise",
+                   "cv_move_time", "time_vs_eval_gap_corr", "opening_to_mid_acpl_drop",
+                   "deficit_acpl_drop", "scramble_acpl_drop")
+        rows = []
+        for player, color in (("alice", "white"), ("bob", "black")):
+            row = {"game_id": "1", "date": "2026-11-01", "time_control": "rapid",
+                   "player": player, "color": color, "elo": 1400}
+            row.update({metric: None for metric in metrics})
+            row["capped_acpl"] = 20.0
+            rows.append(row)
+        features = pd.DataFrame(rows)
+        blitz_only = {"buckets": {}, "global_tc": {"blitz": {"capped_acpl": (40.0, 6.0)}},
+                      "consistency_c": 0.85, "n_clean_games": 60}
+        row = score_games(features, calibration=blitz_only).iloc[0]
+        self.assertEqual(row["baseline_mode"], "elo_fallback")
+        self.assertEqual(row["calibration_status"], "uncalibrated")
+        self.assertIsNotNone(row["z_accuracy"])
+
+        rapid = {"buckets": {}, "global_tc": {"rapid": {"capped_acpl": (40.0, 6.0)}},
+                 "consistency_c": 0.85, "n_clean_games": 60}
+        scored = score_games(features, calibration=rapid)
+        row = scored.iloc[0]
+        self.assertEqual(row["baseline_mode"], "control_cohort")
+        self.assertEqual(row["calibration_status"], "cohort_baseline")
+        summary = aggregate_player_scores(scored).iloc[0]
+        self.assertEqual(summary["calibration_status"], "cohort_baseline")
+        self.assertIn("Cohort Z-score calibration loaded", summary["calibration_note"])
+
+    def test_cohort_time_controls_only_lists_covered(self):
+        cal = {"buckets": {("blitz", 1400): {"capped_acpl": (40.0, 6.0)}}, "global_tc": {"rapid": {}}}
+        self.assertEqual(cohort_time_controls(cal), {"blitz", "rapid"})
+        self.assertEqual(cohort_time_controls({"buckets": {}, "global_tc": {}}), set())
 
 
 if __name__ == "__main__":

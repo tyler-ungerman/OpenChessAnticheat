@@ -13,6 +13,7 @@ from .calibration import (
     _expected_acpl_for_elo,
     _expected_top1_for_elo,
     _lookup_cohort_z,
+    cohort_time_controls,
     load_calibration,
 )
 from .hmm_toggle import fit_game_hmm_toggle
@@ -98,7 +99,7 @@ def score_games(
 
     cfg = config or DetectorConfig()
     cal = calibration if calibration is not None else load_calibration()
-    has_empirical_cal = bool(cal.get("buckets") or cal.get("global_tc"))
+    cohort_tcs = cohort_time_controls(cal)
     c_fixed = float(cal.get("consistency_c", 0.85))
     df = features_df.copy()
 
@@ -130,6 +131,7 @@ def score_games(
     for idx, row in df.iterrows():
         player = str(row["player"])
         tc = str(row["time_control"])
+        has_cohort_for_tc = tc in cohort_tcs
         elo = row.get("elo")
         p_cohort = player_groups.get((player, tc))
         loo_cohort = p_cohort[p_cohort.index != idx] if p_cohort is not None else pd.DataFrame()
@@ -142,7 +144,7 @@ def score_games(
             if has_personal_history
             else None
         )
-        if has_empirical_cal:
+        if has_cohort_for_tc:
             cohort_acpl = _lookup_cohort_z(
                 row.get("capped_acpl"), "capped_acpl", tc, elo, cal, higher_is_suspicious=False
             )
@@ -156,7 +158,7 @@ def score_games(
             if has_personal_history
             else None
         )
-        if has_empirical_cal:
+        if has_cohort_for_tc:
             cohort_top1 = _lookup_cohort_z(
                 row.get("top1_rate"), "top1_rate", tc, elo, cal, higher_is_suspicious=True
             )
@@ -184,7 +186,7 @@ def score_games(
             _lookup_cohort_z(
                 row.get("critical_top1_rate"), "critical_top1_rate", tc, elo, cal, higher_is_suspicious=True
             )
-            if has_empirical_cal
+            if has_cohort_for_tc
             else _robust_z(row.get("critical_top1_rate"), ref_cohort["critical_top1_rate"], higher_is_suspicious=True)
         )
         z_crit_top1 = _max_valid(self_crit_top1, cohort_crit_top1)
@@ -214,7 +216,7 @@ def score_games(
             _lookup_cohort_z(
                 row.get("choice_sensitivity_s"), "choice_sensitivity_s", tc, elo, cal, higher_is_suspicious=False
             )
-            if has_empirical_cal
+            if has_cohort_for_tc
             else _robust_z(
                 row.get("choice_sensitivity_s"), ref_cohort["choice_sensitivity_s"], higher_is_suspicious=False
             )
@@ -240,7 +242,7 @@ def score_games(
         z_surprise = float(np.mean(surp_parts)) if surp_parts else None
 
         # --- Signal E: Clock Pacing, Complexity Decoupling & Post-Blunder Timing ---
-        if not has_personal_history and has_empirical_cal:
+        if not has_personal_history and has_cohort_for_tc:
             z_cv_time = _lookup_cohort_z(
                 row.get("cv_move_time"), "cv_move_time", tc, elo, cal, higher_is_suspicious=False
             )
@@ -329,9 +331,10 @@ def score_games(
 
         baseline_mode = (
             "self+cohort"
-            if (has_personal_history and has_empirical_cal)
-            else ("self_history" if has_personal_history else ("control_cohort" if has_empirical_cal else "elo_fallback"))
+            if (has_personal_history and has_cohort_for_tc)
+            else ("self_history" if has_personal_history else ("control_cohort" if has_cohort_for_tc else "elo_fallback"))
         )
+        cohort_calibrated = baseline_mode in {"self+cohort", "control_cohort"}
 
         scored_rows.append(
             {
@@ -365,7 +368,7 @@ def score_games(
                 "composite_z": composite_z,
                 "sprt_llr_step": sprt_llr_step,
                 "null_p_value": None,
-                "calibration_status": "uncalibrated",
+                "calibration_status": "cohort_baseline" if cohort_calibrated else "uncalibrated",
                 "status": status,
                 "triggers": ", ".join(triggers) if triggers else "none",
             }
@@ -456,6 +459,17 @@ def aggregate_player_scores(
         else:
             account_verdict = "no_outlier_detected"
 
+        modes = set()
+        if "baseline_mode" in grp.columns:
+            modes = {str(value) for value in grp["baseline_mode"].dropna()}
+        cohort_calibrated = bool(modes & {"self+cohort", "control_cohort"})
+        calibration_status = "cohort_baseline" if cohort_calibrated else "uncalibrated"
+        calibration_note = (
+            "Cohort Z-score calibration loaded; account-level empirical null not configured."
+            if cohort_calibrated
+            else "Heuristic scores only; no independent labelled account-level null distribution."
+        )
+
         summaries.append(
             {
                 "player": player,
@@ -471,8 +485,8 @@ def aggregate_player_scores(
                 "rebound_z_delta": rebound_delta,
                 "opening_contradiction": opening_contradiction,
                 "null_p_value": None,
-                "calibration_status": "uncalibrated",
-                "calibration_note": "Heuristic scores only; no independent labelled account-level null distribution.",
+                "calibration_status": calibration_status,
+                "calibration_note": calibration_note,
                 "account_verdict": account_verdict,
                 "flagged_games": flagged_count,
                 "flagged_pct": round(100.0 * flagged_count / n_games, 1),

@@ -4,6 +4,7 @@ from .base import DETECTOR_REGISTRY, DetectorConfig, DetectorFn, register_detect
 from .calibration import (
     DEFAULT_BASELINE,
     build_empirical_baselines,
+    cohort_time_controls,
     load_calibration,
 )
 from .compiler import (
@@ -41,6 +42,7 @@ __all__ = [
     "aggregate_player_scores",
     "build_empirical_baselines",
     "build_style_profile",
+    "cohort_time_controls",
     "evaluate_style_deviation",
     "fit_game_hmm_toggle",
     "fit_game_sensitivity_s",

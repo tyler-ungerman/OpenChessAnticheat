@@ -187,7 +187,7 @@ Use `/analyze/pgn` with `pgn_text` to send PGN content instead of a path.
 | `composite_z` | Weighted combination of available signal Z-scores |
 | `max_sprt_llr` | Heuristic sequential accumulation; **not** a validated likelihood ratio |
 | `null_p_value` | `null` until an independent account-level null is available |
-| `calibration_status` | Machine-readable calibration state (`empirical_null` once configured) |
+| `calibration_status` | Machine-readable state: `cohort_baseline` when `data/baseline.json` has cohort statistics for the analyzed time control; `empirical_null` for an account-level reference |
 | `flagged_games` / `flagged_pct` | Legacy names for games that crossed the game-level tier |
 
 ## Data and calibration
@@ -211,6 +211,8 @@ python scripts/build_baseline.py --controls data/controls \
 The baseline is optional; without it, scoring falls back to Elo curves. Control accounts are treated
 as presumed typical, not adjudicated. `build_baseline.py` needs roughly 15+ player-games per
 (time control, 100-Elo bucket) for cohort statistics and warns when the cohort is too sparse.
+Coverage is per time control: a baseline built only from blitz games leaves rapid and daily on the
+Elo fallback, and `calibration_status` stays `uncalibrated` for those rows.
 Add `--export-moves data/controls_moves.jsonl.gz` to create the fixture consumed by
 `backend/benchmark.py`.
 

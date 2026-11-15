@@ -17,7 +17,12 @@ from pathlib import Path
 BACKEND_DIR = Path(__file__).resolve().parents[1] / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
-from src.detectors import aggregate_player_scores, score_games  # noqa: E402
+from src.detectors import (  # noqa: E402
+    aggregate_player_scores,
+    cohort_time_controls,
+    load_calibration,
+    score_games,
+)
 from src.detectors.reference_compare import compare_accounts, read_proxy_reference  # noqa: E402
 from src.engine import EngineConfig, evaluate_games_df  # noqa: E402
 from src.features import build_features  # noqa: E402
@@ -137,17 +142,31 @@ def _table(
         print("  " + "  ".join(parts).rstrip())
 
 
-def _print_header(args, raw_df, features_df, players_df, use_color: bool) -> None:
+def _print_header(args, raw_df, features_df, players_df, calibration, use_color: bool) -> None:
     width = _width()
-    statuses = []
-    if "calibration_status" in players_df.columns:
-        statuses = sorted({str(value) for value in players_df["calibration_status"].dropna()})
-    status = ", ".join("no local baseline" if value == "uncalibrated" else value for value in statuses) or "unknown"
+    display_path = args.pgn
+    if display_path.is_absolute():
+        try:
+            display_path = display_path.resolve().relative_to(BACKEND_DIR.parent)
+        except ValueError:
+            pass
+    controls = int(calibration.get("n_clean_games") or 0)
+    covered = sorted(cohort_time_controls(calibration))
+    analyzed = set()
+    if "time_control" in features_df.columns:
+        analyzed = {str(value) for value in features_df["time_control"].dropna()}
+    uncovered = sorted(analyzed - set(covered))
+    if controls and covered:
+        status = f"local cohort baseline ({controls} control player-games; {', '.join(covered)})"
+        if uncovered:
+            status += f"; Elo fallback for {', '.join(uncovered)}"
+    else:
+        status = "no local baseline"
 
     print()
     print(_paint("Chess fair-play screening", _BOLD, use_color))
     print(_paint("─" * width, _DIM, use_color))
-    print(f"  {'File':<12}{_short(args.pgn, width - 14)}")
+    print(f"  {'File':<12}{_short(display_path, width - 14)}")
     print(
         f"  {'Games':<12}{raw_df['game_id'].nunique()}"
         f"   {'Player-game rows':<18}{len(features_df)}"
@@ -352,6 +371,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if not args.pgn.is_absolute() and not args.pgn.is_file():
+        candidate = BACKEND_DIR.parent / args.pgn
+        if candidate.is_file():
+            args.pgn = candidate
     if not args.pgn.is_file():
         print(f"PGN not found: {args.pgn}", file=sys.stderr)
         return 2
@@ -375,7 +398,8 @@ def main() -> int:
         print("No games had enough evaluated moves (minimum 5 per player).", file=sys.stderr)
         return 1
 
-    scored_df = score_games(features_df, eval_df=eval_df)
+    calibration = load_calibration()
+    scored_df = score_games(features_df, eval_df=eval_df, calibration=calibration)
     players_df = aggregate_player_scores(scored_df, features_df=features_df)
     if args.reference:
         if not args.platform:
@@ -390,7 +414,7 @@ def main() -> int:
             return 2
     use_color = sys.stdout.isatty() and not args.no_color
 
-    _print_header(args, raw_df, features_df, players_df, use_color)
+    _print_header(args, raw_df, features_df, players_df, calibration, use_color)
 
     if args.player:
         target = args.player.casefold()
