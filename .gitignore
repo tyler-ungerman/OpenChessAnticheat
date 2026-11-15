@@ -11,8 +11,7 @@ __pycache__/
 backend/main.py
 
 # Fetched or generated data
-data/personal/
-data/controls/
+data/
 
 
 # Engine evaluation cache

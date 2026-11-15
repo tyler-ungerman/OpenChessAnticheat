@@ -1,87 +1,151 @@
-# Chess Fair-Play Detection
+# Chess Fair-Play Research & Screening
 
-Behavioral screening for chess games. Stockfish evaluates every move, engineered
-features summarize how a player performs under pressure, and behavioral detectors flag
-exploratory deviations against personal history and a presumed-clean rating-matched cohort.
+Open-source behavioral screening for chess games. Multi-depth Stockfish evaluation, game-level
+behavioral features, and four independent detectors surface **exploratory deviations** for human
+review.
 
-> **Research-only.** The current heuristic anomaly scores are **not** calibrated
-> cheating probabilities or adjudications. A high score does not establish misconduct;
-> a low score does not establish innocence. No independent account-level false-positive
-> rate has been measured. Outputs have `null_p_value: null` and
-> `calibration_status: uncalibrated` until an independently held-out account-level
-> reference has been validated. The legacy `bayesian_sprt_ensemble` API name remains
-> for compatibility, but its accumulated score is not a calibrated Bayesian posterior
-> or validated sequential likelihood ratio.
+It is built for researchers, event organizers, and players auditing their own games. It does **not**
+issue cheating verdicts, automated bans, or conclusions about a person.
 
-## What it does
+## Design principles
 
-- **Move evaluation** — Stockfish MultiPV at shallow and full depth, with a persistent cache.
-- **Behavioral features** — accuracy/CPL, critical and quiet-critical precision, Regan-style
-  move-choice sensitivity, HMM toggling, clock pacing, phase and deficit/scramble shifts.
-- **Detectors (exploratory only)** — `statistical_z_cusum`, `hmm_toggle_detector`, `bayesian_sprt_ensemble`, and
-  `game_style_fingerprint` (RMS deviation from a player's prior style profile: accuracy,
-  engine-match rate, tactical precision, volatility, blunder rate, opening profile).
-- **HTTP API** — analyze raw PGN text or a server-side `.pgn` file. All four detectors run by default.
+- **No automated verdicts.** Game and player outputs are exploratory tiers, not accusations.
+  `null_p_value` remains empty until an independent, held-out account-level reference is
+  configured.
+- **Calibration is explicit.** No `cheat_probability` is emitted. An empirical account-level tail
+  requires at least 99 independent null accounts; resolving a 0.1% tail requires 999+.
+- **Explainable by layer.** Each detector reports its own scores, thresholds, and trigger reasons,
+  so a reviewer can see *why* a case was surfaced.
+- **Conservative by default.** Missing clock data, thin history, sparse cohorts, and small control
+  sets produce weaker evidence rather than invented precision.
+- **Reproducible and privacy-aware.** The engine cache, feature pipeline, safety tests, and data
+  tooling are in the repository; fetched games, control archives, and generated calibration files
+  stay local.
 
-## Layout
+## Project layout
+
+- `backend/` — FastAPI service, scoring pipeline, and research safeguards
+- `backend/src/engine/` — Stockfish MultiPV evaluation and persistent cache
+- `backend/src/features/` — game-level behavioral feature engineering
+- `backend/src/detectors/` — Z/CUSUM/SPRT scoring, HMM regime detection, style fingerprints,
+  calibration, and validation utilities
+- `backend/src/ingestion/` — PGN parsing and bot filtering
+- `examples/analyze_pgn.py` — human-readable CLI report without the API server
+- `scripts/fetch_games.py` — fetch public Chess.com games into PGN files
+- `scripts/build_baseline.py` — build an optional control-cohort calibration
+- `tests/` — safety and contract regression tests
+- `.github/workflows/safety-tests.yml` — scoring-safety test workflow
+- `data/` — local-only games, controls, caches, and generated calibration (gitignored)
+- `LICENSE` — MIT
+
+## What's implemented
+
+**Analysis engine**
+- Multi-depth Stockfish evaluation (MultiPV, shallow/full snapshots) with a persistent FEN/move cache
+- Behavioral features: accuracy/CPL, critical and quiet-critical precision, Regan-style move-choice
+  sensitivity, timing/pacing, phase shifts, deficit and scramble behavior, and style-profile metrics
+- Four detectors: `statistical_z_cusum`, `hmm_toggle_detector`, `bayesian_sprt_ensemble`, and
+  `game_style_fingerprint`
+- Game-level and player-level reports with per-signal Z-scores, CUSUM/SPRT summaries, and trigger
+  descriptions
+
+**API**
+- `GET /health`, `GET /detectors`
+- `POST /analyze/pgn` for raw PGN text
+- `POST /analyze/file` for a server-side `.pgn` path
+- Structured detector payloads plus optional feature/move rows
+
+**Validation safeguards**
+- `backend/src/detectors/validation.py` provides account-level empirical-tail utilities and a
+  leakage/label-manifest validator
+- Outputs explicitly carry `null_p_value`, `calibration_status`, and `calibration_note`
+- Safety regression tests reject cheat probabilities, duplicate/self calibration controls, and
+  cross-split account leakage
+
+**Data tooling**
+- Chess.com public-game fetch for a player or a control-account list
+- Control-cohort baseline builder with optional move export for `backend/benchmark.py`
+- Synthetic engine-injection benchmark for sanity checking, not external validation
+
+## Current limitations
+
+- **No probability of misconduct is emitted.** The project does not estimate
+  `P(misconduct | data)`. The legacy `bayesian_sprt_ensemble` name is retained for compatibility,
+  but its score is not a Bayesian posterior or a validated sequential likelihood ratio.
+- **Account-level calibration is in progress.** Control accounts are presumed typical, not
+  verified. An empirical tail needs at least 99 independent accounts; 0.1% resolution needs 999+.
+  No qualified cohort is shipped yet.
+- **External validation is pending.** No held-out adjudicated cases, false-positive counts with
+  intervals, recall at fixed FPR, Brier score, or calibration error are reported yet. The synthetic
+  injection benchmark is a robustness check, not proof of accuracy.
+- **No UI, auth, persistence, or audit workflow.** The API is stateless; it produces analysis
+  payloads only.
+- **Legacy output names remain.** `account_verdict` and `flagged_*` are retained for compatibility;
+  read them as heuristic screening tiers, not findings.
+- **Window-length comparability.** Historical per-game maxima depend on how many games an
+  account has; compare accounts only at matched window lengths.
+- **Data licensing/privacy is the operator’s responsibility.** Public game archives may still be
+  sensitive; do not republish third-party data.
+- **Safety workflow coverage is incomplete.** The workflow currently targets the feature branch and
+  pull requests; broaden it to `main` before relying on it as a merge gate.
+
+## Setup
+
+Requirements: Python 3.12+, Stockfish, and the packages in `requirements.txt`.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# macOS example; install Stockfish however you prefer
+brew install stockfish
+# or: export STOCKFISH_PATH=/path/to/stockfish
+```
+
+Run the safety tests:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+## Quickstart
+
+### CLI report (no server)
+
+```bash
+python examples/analyze_pgn.py examples/sample_game.pgn --depth 2
+python examples/analyze_pgn.py data/games.pgn --player alice
+```
+
+The report leads with the screening summary, shows the highest-priority players, and prints the
+calibration caveat once. `--json-out results.json` writes the full rows; `--top`, `--top-games`, and
+`--no-color` control the presentation.
+
+Abridged example:
 
 ```text
-backend/
-  api.py            FastAPI app
-  benchmark.py      synthetic-injection benchmark
-  src/
-    detectors/      scoring, calibration, HMM, SPRT registry
-    engine/         Stockfish evaluation and cache
-    features/       game-level feature engineering
-    ingestion/      PGN parsing and bot filtering
-scripts/
-  fetch_games.py    fetch public Chess.com games into PGN files
-  build_baseline.py build an optional control-cohort calibration
-examples/
-  analyze_pgn.py    run the pipeline from Python (no server)
-  sample_game.pgn
-data/               generated calibration and move exports (gitignored)
+Chess fair-play screening
+────────────────────────────────────────────
+  File        examples/sample_game.pgn
+  Games       1   Player-game rows 2   Players 2
+  Calibration no local baseline
+
+alice  ·  rapid  ·  No outlier detected
+  ──────────────────────────────────────────
+  Screening       No outlier detected
+  Games           1   Mean ACPL 14.4   Mean Elo 1600
+  Max signal      SPRT 2.90   CUSUM 1.67   Z 2.17
+  Outlier games   0 / 1 (0.0%)
+  Empirical null  not configured
+
+Games crossing the exploratory tiers
+  No individual games crossed the exploratory tiers.
+
+Heuristic tiers only; not a cheating determination.
 ```
 
-## Requirements
-
-- Python 3.12+
-- Stockfish (for example `brew install stockfish`), found on `PATH` or via `STOCKFISH_PATH`
-- `pip install -r requirements.txt`
-
-## Get your own games
-
-The repository ships one tiny sample PGN. Fetch your own public Chess.com games:
-
-```bash
-python scripts/fetch_games.py --user alice --out datasets/games.pgn
-```
-
-Useful options: `--months` (default 3, `0` = all archives), `--max-games` (default 100),
-`--time-class rapid`. Only standard chess is fetched; bot games are filtered by the parser.
-
-## Optional: control-cohort calibration
-
-Cohort calibration compares a player against presumed-clean accounts of similar rating and
-time control. Fetch a set of controls and build the baseline:
-
-```bash
-printf "control_user_1\ncontrol_user_2\n" > controls.txt
-python scripts/fetch_games.py --users-file controls.txt \
-  --out-dir datasets/controls --months 3 --max-games 50
-python scripts/build_baseline.py --controls datasets/controls \
-  --out data/baseline.json --workers 6
-```
-
-`build_baseline.py` runs Stockfish over the control games (slow on the first run, cached
-afterwards). It writes `data/baseline.json`; roughly 15+ player-games per (time control,
-100-Elo bucket) are needed for cohort statistics. Without that file the pipeline uses
-Elo-based fallbacks.
-
-To also create the fixture used by `backend/benchmark.py`, add
-`--export-moves data/controls_moves.jsonl.gz`, then run `python backend/benchmark.py`.
-
-## Run the API
+### API
 
 ```bash
 cd backend
@@ -105,23 +169,55 @@ curl -X POST http://127.0.0.1:8000/analyze/file \
 
 Use `/analyze/pgn` with `pgn_text` to send PGN content instead of a path.
 
-## Example without the API
+## Detectors
+
+| Detector | What it examines | Output |
+|---|---|---|
+| `statistical_z_cusum` | Seven behavioral signals standardized against personal history and a rating/time-control cohort | Game tiers, composite Z, CUSUM, SPRT summary |
+| `hmm_toggle_detector` | Two-state HMM for within-game shifts between human-like and engine-like move regimes | Engine-like fraction, longest streak, path LLR |
+| `bayesian_sprt_ensemble` | SPRT-style fusion across surprise, HMM, and meta-history signals (legacy name) | Heuristic account tier |
+| `game_style_fingerprint` | Deviation from a player’s prior style profile | RMS Z-score and per-game style metrics |
+
+## API response semantics
+
+| Field | Meaning |
+|---|---|
+| `status` | Game-level: `exploratory_outlier`, `exploratory_review`, `no_outlier_detected`, `untimed_excluded` |
+| `account_verdict` | Player-level heuristic tier: `manual_review_recommended`, `statistical_outlier`, `no_outlier_detected` |
+| `composite_z` | Weighted combination of available signal Z-scores |
+| `max_sprt_llr` | Heuristic sequential accumulation; **not** a validated likelihood ratio |
+| `null_p_value` | `null` until an independent account-level null is available |
+| `calibration_status` | Machine-readable calibration state (`empirical_null` once configured) |
+| `flagged_games` / `flagged_pct` | Legacy names for games that crossed the game-level tier |
+
+## Data and calibration
+
+Fetch your own public Chess.com games:
 
 ```bash
-python examples/analyze_pgn.py examples/sample_game.pgn
-python examples/analyze_pgn.py datasets/games.pgn --player alice --depth 12 --json-out results.json
+python scripts/fetch_games.py --user alice --out data/games.pgn
 ```
 
-The first run evaluates uncached plies with Stockfish; later runs reuse
-`backend/.cache/position_evals.json`. Pass `--no-cache` to bypass the cache.
+Fetch control accounts (one file per account) and build the optional baseline:
 
-## Calibration
+```bash
+printf "control_user_1\ncontrol_user_2\n" > controls.txt
+python scripts/fetch_games.py --users-file controls.txt \
+  --out-dir data/controls --months 3 --max-games 50
+python scripts/build_baseline.py --controls data/controls \
+  --out data/baseline.json --workers 6
+```
 
-`backend/src/detectors/calibration.py` loads `data/baseline.json` if it exists at API startup
-or on the first scoring call. `GET /health` reports whether cohort tables loaded. Without the
-file, scoring falls back to Elo-based curves.
+The baseline is optional; without it, scoring falls back to Elo curves. Control accounts are treated
+as presumed typical, not adjudicated. `build_baseline.py` needs roughly 15+ player-games per
+(time control, 100-Elo bucket) for cohort statistics and warns when the cohort is too sparse.
+Add `--export-moves data/controls_moves.jsonl.gz` to create the fixture consumed by
+`backend/benchmark.py`.
 
-## Notes
+`backend/src/detectors/calibration.py` loads `data/baseline.json` if present at API startup or on
+the first scoring call; `GET /health` reports whether cohort tables loaded.
 
-- `game_style_fingerprint` needs at least two games per player for a nonzero deviation. Its
 
+## License
+
+MIT — see [LICENSE](LICENSE).

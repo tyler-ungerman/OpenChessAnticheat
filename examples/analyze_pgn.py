@@ -3,12 +3,14 @@
 
 Examples:
     python examples/analyze_pgn.py examples/sample_game.pgn
-    python examples/analyze_pgn.py my_games.pgn --player alice --depth 12 --json-out results.json
+    python examples/analyze_pgn.py data/personal/games.pgn --player alice
+    python examples/analyze_pgn.py data/personal/games.pgn --json-out results.json
 """
 from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -19,6 +21,302 @@ from src.detectors import aggregate_player_scores, score_games  # noqa: E402
 from src.engine import EngineConfig, evaluate_games_df  # noqa: E402
 from src.features import build_features  # noqa: E402
 from src.ingestion import parse_pgn_for_detection  # noqa: E402
+
+_RESET = "\033[0m"
+_BOLD = "\033[1m"
+_DIM = "\033[2m"
+_GREEN = "\033[32m"
+_YELLOW = "\033[33m"
+_RED = "\033[31m"
+_CYAN = "\033[36m"
+
+_VERDICT_LABELS = {
+    "manual_review_recommended": "Manual review recommended",
+    "statistical_outlier": "Statistical outlier",
+    "no_outlier_detected": "No outlier detected",
+    "not_calibrated": "Not calibrated",
+}
+_VERDICT_COLORS = {
+    "manual_review_recommended": _RED,
+    "statistical_outlier": _YELLOW,
+    "no_outlier_detected": _GREEN,
+    "not_calibrated": _DIM,
+}
+_STATUS_LABELS = {
+    "exploratory_outlier": "Outlier",
+    "exploratory_review": "Review",
+}
+_STATUS_COLORS = {
+    "exploratory_outlier": _YELLOW,
+    "exploratory_review": _CYAN,
+}
+_PRIORITY = {
+    "manual_review_recommended": 0,
+    "statistical_outlier": 1,
+    "no_outlier_detected": 2,
+}
+
+
+def _paint(text: str, code: str | None, enabled: bool) -> str:
+    return f"{code}{text}{_RESET}" if enabled and code else text
+
+
+def _width() -> int:
+    return max(80, min(108, shutil.get_terminal_size((100, 24)).columns))
+
+
+def _short(value: object, limit: int) -> str:
+    text = "—" if value is None or value == "" else str(value)
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _count(value: int, singular: str, plural: str | None = None) -> str:
+    return f"{value} {singular if value == 1 else (plural or singular + 's')}"
+
+
+def _num(value: object, digits: int = 2) -> str:
+    if value is None:
+        return "—"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    if number != number:
+        return "—"
+    return f"{number:.{digits}f}"
+
+
+def _verdict_label(value: object) -> str:
+    raw = str(value or "unknown")
+    return _VERDICT_LABELS.get(raw, raw.replace("_", " ").capitalize())
+
+
+def _verdict_color(value: object) -> str:
+    return _VERDICT_COLORS.get(str(value or ""), _DIM)
+
+
+def _status_label(value: object) -> str:
+    raw = str(value or "unknown")
+    return _STATUS_LABELS.get(raw, raw.replace("_", " ").capitalize())
+
+
+def _status_color(value: object) -> str:
+    return _STATUS_COLORS.get(str(value or ""), _DIM)
+
+
+def _table(
+    headers: list[str],
+    rows: list[list[str]],
+    *,
+    right: set[int] | None = None,
+    status_col: int | None = None,
+    row_colors: list[str] | None = None,
+    use_color: bool = False,
+) -> None:
+    right = right or set()
+    widths = [len(header) for header in headers]
+    for cells in rows:
+        for index, cell in enumerate(cells):
+            widths[index] = max(widths[index], len(cell))
+
+    header = [
+        cell.rjust(width) if index in right else cell.ljust(width)
+        for index, (cell, width) in enumerate(zip(headers, widths))
+    ]
+    print("  " + "  ".join(header))
+    print("  " + "  ".join("─" * width for width in widths))
+
+    for row_index, cells in enumerate(rows):
+        parts = []
+        for index, (cell, width) in enumerate(zip(cells, widths)):
+            text = cell.rjust(width) if index in right else cell.ljust(width)
+            if index == status_col and row_colors:
+                text = _paint(text, row_colors[row_index], use_color)
+            parts.append(text)
+        print("  " + "  ".join(parts).rstrip())
+
+
+def _print_header(args, raw_df, features_df, players_df, use_color: bool) -> None:
+    width = _width()
+    statuses = []
+    if "calibration_status" in players_df.columns:
+        statuses = sorted({str(value) for value in players_df["calibration_status"].dropna()})
+    status = ", ".join("no local baseline" if value == "uncalibrated" else value for value in statuses) or "unknown"
+
+    print()
+    print(_paint("Chess fair-play screening", _BOLD, use_color))
+    print(_paint("─" * width, _DIM, use_color))
+    print(f"  {'File':<12}{_short(args.pgn, width - 14)}")
+    print(
+        f"  {'Games':<12}{raw_df['game_id'].nunique()}"
+        f"   {'Player-game rows':<18}{len(features_df)}"
+        f"   {'Players':<8}{players_df['player'].nunique()}"
+    )
+    print(f"  {'Calibration':<12}{status}")
+    print()
+
+
+def _print_summary(players_df, use_color: bool) -> None:
+    values = players_df["account_verdict"].value_counts()
+    manual = int(values.get("manual_review_recommended", 0))
+    outliers = int(values.get("statistical_outlier", 0))
+    none = int(values.get("no_outlier_detected", 0))
+    print(
+        _paint("Screening (player/TC rows):", _BOLD, use_color)
+        + f" {_count(manual, 'manual-review recommendation')}"
+        + f" · {_count(outliers, 'statistical outlier')}"
+        + f" · {none} no outlier detected"
+    )
+    print()
+
+
+def _print_player_cards(players_view, use_color: bool) -> None:
+    width = _width()
+    for row in players_view.to_dict(orient="records"):
+        verdict = row.get("account_verdict")
+        print(
+            f"{_paint(str(row['player']), _BOLD, use_color)}"
+            f"  {_paint('·', _DIM, use_color)}  {row['time_control']}"
+            f"  {_paint('·', _DIM, use_color)}  "
+            f"{_paint(_verdict_label(verdict), _verdict_color(verdict), use_color)}"
+        )
+        print(_paint("  " + "─" * width, _DIM, use_color))
+        print(f"  {'Screening':<16}{_paint(_verdict_label(verdict), _verdict_color(verdict), use_color)}")
+        print(
+            f"  {'Games':<16}{int(row['games'])}"
+            f"   {'Mean ACPL':<10}{_num(row.get('mean_acpl'), 1)}"
+            f"   {'Mean Elo':<8} {_num(row.get('mean_elo'), 0)}"
+        )
+        print(
+            f"  {'Max signal':<16}SPRT {_num(row.get('max_sprt_llr'))}"
+            f"   CUSUM {_num(row.get('max_cusum'))}"
+            f"   Z {_num(row.get('max_single_z'))}"
+        )
+        print(
+            f"  {'Outlier games':<16}{int(row.get('flagged_games') or 0)}"
+            f" / {int(row['games'])} ({_num(row.get('flagged_pct'), 1)}%)"
+        )
+        null_value = row.get("null_p_value")
+        null_text = "not configured" if null_value is None else f"p = {_num(null_value, 4)}"
+        print(f"  {'Empirical null':<16}{null_text}")
+        if int(row.get("flagged_games") or 0) == 0 and verdict in {
+            "manual_review_recommended",
+            "statistical_outlier",
+        }:
+            print(
+                _paint(
+                    "  Note            No single game crossed the game-level tier; "
+                    "the account tier is cumulative.",
+                    _DIM,
+                    use_color,
+                )
+            )
+        print()
+
+
+def _ranked(players_df):
+    ranked = players_df.copy()
+    ranked["_priority"] = ranked["account_verdict"].map(_PRIORITY).fillna(3)
+    ranked = ranked.sort_values(
+        ["_priority", "games", "max_sprt_llr"],
+        ascending=[True, False, False],
+    )
+    return ranked.drop(columns=["_priority"])
+
+
+def _print_players_table(ranked, top: int, use_color: bool) -> None:
+    shown = ranked.head(top)
+    player_width = max(12, min(18, _width() - 66))
+    rows = []
+    colors = []
+    for row in shown.to_dict(orient="records"):
+        rows.append(
+            [
+                _short(row["player"], player_width),
+                _short(row["time_control"], 7),
+                str(int(row["games"])),
+                _num(row.get("mean_acpl"), 1),
+                _num(row.get("max_sprt_llr")),
+                f"{int(row.get('flagged_games') or 0)} ({_num(row.get('flagged_pct'), 0)}%)",
+                _short(_verdict_label(row.get("account_verdict")), 24),
+            ]
+        )
+        colors.append(_verdict_color(row.get("account_verdict")))
+
+    print(_paint("Players ranked by heuristic priority", _BOLD, use_color))
+    _table(
+        ["Player", "TC", "Games", "ACPL", "Max SPRT", "Outliers", "Screening"],
+        rows,
+        right={2, 3, 4},
+        status_col=6,
+        row_colors=colors,
+        use_color=use_color,
+    )
+    remaining = len(ranked) - len(shown)
+    if remaining > 0:
+        print(
+            _paint(
+                f"  {remaining} more player/time-control rows not shown. "
+                f"Use --top {len(ranked)} or --verbose for all.",
+                _DIM,
+                use_color,
+            )
+        )
+    if (
+        (ranked["account_verdict"] != "no_outlier_detected").any()
+        and (ranked["flagged_games"].fillna(0) == 0).any()
+    ):
+        print(
+            _paint(
+                "  Account tiers can be cumulative: a statistical outlier may have "
+                "zero individually flagged games.",
+                _DIM,
+                use_color,
+            )
+        )
+    print()
+
+
+def _print_games_table(scored_view, top: int, use_color: bool) -> None:
+    games = scored_view[scored_view["status"].isin(["exploratory_outlier", "exploratory_review"])]
+    games = games.sort_values("composite_z", ascending=False)
+    print(_paint("Games crossing the exploratory tiers", _BOLD, use_color))
+    if games.empty:
+        print(_paint("  No individual games crossed the exploratory tiers.", _DIM, use_color))
+        print()
+        return
+
+    shown = games.head(top)
+    rows = []
+    colors = []
+    for row in shown.to_dict(orient="records"):
+        rows.append(
+            [
+                _short(row.get("date"), 10),
+                _short(row.get("game_id"), 5),
+                _short(row.get("player"), 16),
+                _short(row.get("opponent"), 16),
+                _short(row.get("time_control"), 6),
+                _short(row.get("color"), 5),
+                _status_label(row.get("status")),
+                _num(row.get("composite_z")),
+                _num(row.get("sprt_llr_step")),
+            ]
+        )
+        colors.append(_status_color(row.get("status")))
+
+    _table(
+        ["Date", "Game", "Player", "Opponent", "TC", "Color", "Tier", "Z", "SPRT"],
+        rows,
+        right={1, 7, 8},
+        status_col=6,
+        row_colors=colors,
+        use_color=use_color,
+    )
+    remaining = len(games) - len(shown)
+    if remaining > 0:
+        print(_paint(f"  {remaining} more games not shown.", _DIM, use_color))
+    print()
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,7 +334,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=4, help="Stockfish worker processes (default: 4)")
     parser.add_argument("--no-cache", action="store_true", help="Ignore the on-disk evaluation cache")
     parser.add_argument("--json-out", type=Path, help="Write the reported rows to a JSON file")
-    parser.add_argument("--top", type=int, default=10, help="Rows to print (default: 10)")
+    parser.add_argument("--top", type=int, default=8, help="Players to show (default: 8)")
+    parser.add_argument("--top-games", type=int, default=8, help="Games to show (default: 8)")
+    parser.add_argument("--verbose", action="store_true", help="Append the full player table")
+    parser.add_argument("--no-color", action="store_true", help="Disable ANSI colors")
     return parser.parse_args()
 
 
@@ -67,26 +368,38 @@ def main() -> int:
 
     scored_df = score_games(features_df, eval_df=eval_df)
     players_df = aggregate_player_scores(scored_df, features_df=features_df)
+    use_color = sys.stdout.isatty() and not args.no_color
+
+    _print_header(args, raw_df, features_df, players_df, use_color)
 
     if args.player:
         target = args.player.casefold()
-        players_view = players_df[players_df["player"].str.casefold() == target]
-        scored_view = scored_df[scored_df["player"].str.casefold() == target]
+        players_view = players_df[players_df["player"].str.casefold() == target].copy()
+        scored_view = scored_df[scored_df["player"].str.casefold() == target].copy()
         if players_view.empty:
-            print(f"Player {args.player!r} not found in this PGN.", file=sys.stderr)
+            available = sorted(players_df["player"].dropna().unique())
+            preview = ", ".join(available[:8])
+            print(
+                f"Player {args.player!r} not found. Available: {preview}"
+                + (" ..." if len(available) > 8 else ""),
+                file=sys.stderr,
+            )
             return 1
+        players_view = _ranked(players_view)
+        _print_player_cards(players_view, use_color)
     else:
         players_view = players_df
         scored_view = scored_df
+        _print_summary(players_df, use_color)
+        _print_players_table(_ranked(players_df), args.top, use_color)
 
-    print(f"\nGames: {raw_df['game_id'].nunique()} | player-game rows: {len(features_df)}")
+    _print_games_table(scored_view, args.top_games, use_color)
+    print(_paint("Heuristic tiers only; not a cheating determination.", _DIM, use_color))
 
-    print("\nPlayer summary:")
-    print(players_view.head(args.top).to_string(index=False))
-
-    flagged = scored_view[scored_view["status"].isin(["exploratory_outlier", "exploratory_review"])]
-    print("\nExploratory outlier / review games (NOT cheat verdicts):")
-    print(flagged.head(args.top).to_string(index=False) if not flagged.empty else "none")
+    if args.verbose:
+        print(_paint("Full player table", _BOLD, use_color))
+        print(players_view.to_string(index=False))
+        print()
 
     if args.json_out:
         def records(frame):
@@ -104,7 +417,7 @@ def main() -> int:
             ),
             encoding="utf-8",
         )
-        print(f"\nWrote {args.json_out}")
+        print(_paint(f"Wrote {args.json_out}", _DIM, use_color))
     return 0
 
 

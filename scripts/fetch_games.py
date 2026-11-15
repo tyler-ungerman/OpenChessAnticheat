@@ -4,8 +4,8 @@
 Standard chess only; bot/variant games are excluded or filtered later by the pipeline.
 
 Examples:
-    python scripts/fetch_games.py --user alice --out datasets/games.pgn
-    python scripts/fetch_games.py --users-file controls.txt --out-dir datasets/controls \
+    python scripts/fetch_games.py --user alice --out data/games.pgn
+    python scripts/fetch_games.py --users-file controls.txt --out-dir data/controls \
         --months 3 --max-games 50
 """
 from __future__ import annotations
@@ -22,8 +22,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_API_BASE = "https://api.chess.com/pub"
-DEFAULT_GAMES_PATH = REPO_ROOT / "datasets" / "games.pgn"
-DEFAULT_CONTROLS_DIR = REPO_ROOT / "datasets" / "controls"
+DEFAULT_GAMES_PATH = REPO_ROOT / "data" / "games.pgn"
+DEFAULT_CONTROLS_DIR = REPO_ROOT / "data" / "controls"
 USER_AGENT = "chess-detection-data-fetch/1.0"
 
 
@@ -98,11 +98,11 @@ def build_parser() -> argparse.ArgumentParser:
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument("--user", help="Single Chess.com username")
     target.add_argument("--users-file", type=Path, help="File with one username per line")
-    parser.add_argument("--out", type=Path, help="Output PGN for --user (default: datasets/games.pgn)")
+    parser.add_argument("--out", type=Path, help="Output PGN for --user (default: data/games.pgn)")
     parser.add_argument(
         "--out-dir",
         type=Path,
-        help="Directory for --users-file; one <username>.pgn per account (default: datasets/controls)",
+        help="Directory for --users-file; one <username>.pgn per account (default: data/controls)",
     )
     parser.add_argument("--months", type=int, default=3, help="Recent monthly archives to scan; 0 = all")
     parser.add_argument("--max-games", type=int, default=100, help="Games per user; 0 = all")
