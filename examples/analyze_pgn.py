@@ -18,6 +18,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1] / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from src.detectors import aggregate_player_scores, score_games  # noqa: E402
+from src.detectors.reference_compare import compare_accounts, read_proxy_reference  # noqa: E402
 from src.engine import EngineConfig, evaluate_games_df  # noqa: E402
 from src.features import build_features  # noqa: E402
 from src.ingestion import parse_pgn_for_detection  # noqa: E402
@@ -199,6 +200,11 @@ def _print_player_cards(players_view, use_color: bool) -> None:
         null_value = row.get("null_p_value")
         null_text = "not configured" if null_value is None else f"p = {_num(null_value, 4)}"
         print(f"  {'Empirical null':<16}{null_text}")
+        if row.get("proxy_reference_status") == "compared_unconfirmed_proxy":
+            print(f"  {'Proxy percentile':<16}{100 * (1 - row['proxy_tail_p_value']):.1f} / 100"
+                  f" (n={int(row['proxy_reference_accounts'])} unconfirmed accounts)")
+        elif row.get("proxy_reference_status"):
+            print(f"  {'Proxy reference':<16}{row['proxy_reference_status']}")
         if int(row.get("flagged_games") or 0) == 0 and verdict in {
             "manual_review_recommended",
             "statistical_outlier",
@@ -333,6 +339,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--multipv", type=int, default=3, help="MultiPV lines (default: 3)")
     parser.add_argument("--workers", type=int, default=4, help="Stockfish worker processes (default: 4)")
     parser.add_argument("--no-cache", action="store_true", help="Ignore the on-disk evaluation cache")
+    parser.add_argument("--reference", type=Path, help="Optional frozen proxy reference JSON; never required")
+    parser.add_argument("--platform", choices=("chesscom", "lichess"),
+                        help="Platform of the PGN account; required with --reference")
     parser.add_argument("--json-out", type=Path, help="Write the reported rows to a JSON file")
     parser.add_argument("--top", type=int, default=8, help="Players to show (default: 8)")
     parser.add_argument("--top-games", type=int, default=8, help="Games to show (default: 8)")
@@ -368,6 +377,17 @@ def main() -> int:
 
     scored_df = score_games(features_df, eval_df=eval_df)
     players_df = aggregate_player_scores(scored_df, features_df=features_df)
+    if args.reference:
+        if not args.platform:
+            print("--platform chesscom|lichess required with --reference", file=sys.stderr)
+            return 2
+        try:
+            players_df = compare_accounts(
+                players_df, read_proxy_reference(args.reference), platform=args.platform
+            )
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print(f"Invalid reference: {exc}", file=sys.stderr)
+            return 2
     use_color = sys.stdout.isatty() and not args.no_color
 
     _print_header(args, raw_df, features_df, players_df, use_color)
@@ -395,6 +415,10 @@ def main() -> int:
 
     _print_games_table(scored_view, args.top_games, use_color)
     print(_paint("Heuristic tiers only; not a cheating determination.", _DIM, use_color))
+    if args.reference:
+        print(_paint("Proxy percentiles compare against publicly unconfirmed accounts, "
+                     "NOT proven-clean players; not a cheating probability or validated FPR.",
+                     _DIM, use_color))
 
     if args.verbose:
         print(_paint("Full player table", _BOLD, use_color))
