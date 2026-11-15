@@ -72,6 +72,8 @@ def make_reference(
             continue
         ordered = sorted(float(x) for x in values.values())
         cohorts[group] = {"n_accounts": len(ordered), "sorted_scores": ordered,
+                          "account_hashes": sorted(hashlib.sha256(key.encode("utf-8")).hexdigest()
+                                                   for key in values),
                           "source": "unconfirmed_status_accounts_NOT_proven_clean"}
         for key, label, value in held_out[group]:
             # Frozen calibration reference; held-out test accounts never enter the ECDF.
