@@ -1,0 +1,91 @@
+name: Train controlled-assistance model
+on:
+  push:
+    branches: [feat/pretrained-game-classifier]
+    paths:
+      - 'scripts/train_chessfraud_model.py'
+      - 'backend/src/detectors/pretrained_features.py'
+      - 'backend/src/detectors/pretrained_inference.py'
+      - 'tests/test_pretrained_contract.py'
+      - '.github/workflows/train-pretrained.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: train-pretrained-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install 'scikit-learn>=1.4,<1.9' 'datasets>=3,<6'
+      - name: Verify inference contracts
+        run: python -m unittest discover -s tests -p 'test_pretrained_contract.py' -v
+      - name: Train and evaluate on player-disjoint controlled cases
+        run: |
+          python scripts/train_chessfraud_model.py \
+            --out backend/models/chessfraud_v1.json \
+            --metrics data/pretrained_evaluation.json \
+            --experimental-release
+      - name: Upload evaluation evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chessfraud-evaluation
+          path: |
+            data/pretrained_evaluation.json
+            backend/models/chessfraud_v1.json
+          if-no-files-found: warn
+      - name: End-to-end PGN and packaged-model smoke test
+        if: success()
+        run: |
+          if [ ! -f backend/models/chessfraud_v1.json ]; then
+            echo "No approved experimental model to smoke test"
+            exit 0
+          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq stockfish
+          python examples/analyze_pgn.py examples/model_smoke_300.pgn \
+            --player alice --depth 3 --workers 2 \
+            --experimental-model --json-out /tmp/pretrained-smoke.json
+          python - <<'PY'
+          import json
+          report = json.load(open("/tmp/pretrained-smoke.json"))
+          scores = report["pretrained_game_scores"]
+          assert len(scores) == 1, scores
+          assert 0 <= scores[0]["experimental_assistance_score"] <= 100
+          print("END-TO-END PASS", scores)
+          PY
+      - name: Publish opt-in experimental weights only after experimental gate passes
+        if: success()
+        run: |
+          if [ ! -f backend/models/chessfraud_v1.json ]; then
+            echo "NO SHIP: candidate failed even experimental benchmark gate"
+            exit 0
+          fi
+          mkdir -p backend/models
+          cp data/pretrained_evaluation.json backend/models/chessfraud_v1_metrics.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/models/chessfraud_v1.json backend/models/chessfraud_v1_metrics.json
+          if git diff --cached --quiet; then
+            echo "Packaged model and metrics already match trained artifact"
+            exit 0
+          fi
+          git commit -m "Ship experimental ChessFraud pretrained model and held-out metrics"
+          git fetch origin "$GITHUB_REF_NAME"
+          git rebase "origin/$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
