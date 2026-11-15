@@ -27,7 +27,7 @@ class SafetyTests(unittest.TestCase):
     def test_account_summary_never_reports_cheat_probability(self):
         df = pd.DataFrame([
             {"game_id": str(i), "date": f"2026-11-{i+1:02d}", "time_control": "blitz",
-             "player": "test", "color": "white", "composite_z": 5.0,
+             "player": "test", "color": "white", "elo": 1400, "acpl": 15.0, "composite_z": 5.0,
              "status": "exploratory_outlier"} for i in range(5)
         ])
         row = aggregate_player_scores(df).iloc[0].to_dict()
