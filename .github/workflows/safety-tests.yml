@@ -19,7 +19,9 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq stockfish
-          python examples/analyze_pgn.py examples/model_smoke_300.pgn --player alice --depth 3 --workers 2 --json-out /tmp/evidence_report.json
+          python -m venv /tmp/openchess-cli-only
+          /tmp/openchess-cli-only/bin/python -m pip install -r requirements-cli.txt
+          /tmp/openchess-cli-only/bin/python examples/analyze_pgn.py examples/model_smoke_300.pgn --player alice --depth 3 --workers 2 --json-out /tmp/evidence_report.json
           python - <<'PY'
           import json
           report = json.load(open("/tmp/evidence_report.json"))
