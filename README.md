@@ -169,7 +169,7 @@ For a **reproducible evidence snapshot** rather than hand-curated cheating claim
 ```bash
 # From repo root, with requirements installed:
 python scripts/collect_public_labels.py collect \\
-  --seed-pgn datasets/games.pgn --platform chesscom \\
+  --seed-user YOUR_CHESSCOM_USERNAME --platform chesscom \\
   --out data/snapshots/my-first-snapshot \\
   --user-agent "OpenChessAnticheat-research (contact: you@example.com)" \\
   --fetch-games --max-accounts 200 --max-games 50
@@ -180,8 +180,7 @@ python scripts/collect_public_labels.py verify \\
 ```
 
 Alternatively supply a UTF-8 CSV with the columns `platform,player` (platform:
-`chesscom` or `lichess`) using `--accounts accounts.csv`. A PGN seed selects
-accounts already visible in those games; it does not guarantee any fair-play
+`chesscom` or `lichess`) using `--accounts accounts.csv`. \`--seed-user\` downloads public games from that account, then selects players visible in them. An existing PGN can also be supplied with \`--seed-pgn path/to/games.pgn --platform chesscom\`. A PGN seed selects\naccounts already visible in those games; it does not guarantee any fair-play
 closures. Collection is serial to respect public API rate limits, retries
 transient errors, and records failures in `manifest.json`. A partially failed
 run is **not** a complete corpus. Each output directory is immutable: use a
