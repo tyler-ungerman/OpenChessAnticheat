@@ -204,9 +204,15 @@ def _print_player_cards(players_view, use_color: bool) -> None:
         print(f"  {'Screening':<16}{_paint(_verdict_label(verdict), _verdict_color(verdict), use_color)}")
         print(
             f"  {'Games':<16}{int(row['games'])}"
-            f"   {'Mean ACPL':<10}{_num(row.get('mean_acpl'), 1)}"
+            f"   {'Capped ACPL':<12}{_num(row.get('mean_capped_acpl'), 1)}"
             f"   {'Mean Elo':<8} {_num(row.get('mean_elo'), 0)}"
         )
+        print(f"  {'Raw ACPL':<16}{_num(row.get('mean_acpl'), 1)}"
+              f"   {'Median game':<14}{_num(row.get('median_game_acpl'), 1)}"
+              f"   {'Top move rate':<14}{_num(100 * row['top1_rate'], 1) + '%' if row.get('top1_rate') is not None else '—'}")
+        if row.get("mean_acpl") is not None and row.get("mean_capped_acpl") is not None and row["mean_acpl"] > row["mean_capped_acpl"] * 1.5:
+            print(_paint("  Data quality    Raw ACPL is inflated by very large move losses;"
+                         " check mate-score swings and use capped ACPL for comparisons.", _YELLOW, use_color))
         print(
             f"  {'Max signal':<16}SPRT {_num(row.get('max_sprt_llr'))}"
             f"   CUSUM {_num(row.get('max_cusum'))}"
@@ -230,8 +236,8 @@ def _print_player_cards(players_view, use_color: bool) -> None:
         }:
             print(
                 _paint(
-                    "  Note            No single game crossed the game-level tier; "
-                    "the account tier is cumulative.",
+                    "  Interpretation  The account tier comes ONLY from accumulated"
+                    " heuristic scores; no individual game crossed a review tier.",
                     _DIM,
                     use_color,
                 )
@@ -344,6 +350,65 @@ def _print_games_table(scored_view, top: int, use_color: bool) -> None:
     print()
 
 
+def _print_diagnostic_games(scored_view, top: int, use_color: bool) -> None:
+    """Always identify games worth inspection, even if none cross a heuristic tier."""
+    if scored_view.empty:
+        return
+    print(_paint("Games to inspect (ranked, NOT accusations)", _BOLD, use_color))
+    scored = scored_view.sort_values(["composite_z", "date"], ascending=[False, False])
+    rows = []
+    for row in scored.head(top).to_dict(orient="records"):
+        signals = []
+        for key, label in (
+            ("z_accuracy", "accuracy"), ("z_critical", "critical moves"),
+            ("z_choice", "choice"), ("z_surprise", "surprise"),
+            ("z_timing", "timing"), ("z_phase_shift", "phase"),
+            ("z_contextual_toggle", "context"),
+        ):
+            value = row.get(key)
+            if value is not None and float(value) == float(value) and float(value) >= 1.0:
+                signals.append((float(value), label))
+        signals.sort(reverse=True)
+        reasons = ", ".join(f"{label} {value:.1f}" for value, label in signals[:2]) or "no strong signal"
+        rows.append([
+            _short(row.get("date"), 10), _short(row.get("game_id"), 6),
+            _short(row.get("opponent"), 17), _short(row.get("time_control"), 6),
+            _num(row.get("composite_z")), _num(row.get("capped_acpl"), 1),
+            _num(100 * row["top1_rate"], 0) + "%" if row.get("top1_rate") is not None else "—",
+            _short(reasons, 38),
+        ])
+    _table(["Date", "Game", "Opponent", "TC", "Score", "CPL ≤300", "Top1", "Largest signals"],
+           rows, right={4, 5, 6})
+    print(_paint("  Ranked relative to this PGN's scores; even the top game may be ordinary.",
+                 _DIM, use_color))
+    print()
+
+
+def _print_move_quality(eval_df, player: str | None, use_color: bool) -> None:
+    if eval_df is None or eval_df.empty or not player:
+        return
+    moves = eval_df[eval_df["player"].astype(str).str.casefold() == player.casefold()].copy()
+    if moves.empty or "centipawn_loss" not in moves.columns:
+        return
+    import pandas as pd
+    cpl = pd.to_numeric(moves["centipawn_loss"], errors="coerce").dropna()
+    if cpl.empty:
+        return
+    extreme = int((cpl > 1000).sum())
+    median = float(cpl.median())
+    coverage = "unknown"
+    if "move_time" in moves.columns:
+        coverage = f"{100 * moves['move_time'].notna().mean():.0f}%"
+    print(_paint("Move-level data quality", _BOLD, use_color))
+    print(f"  Evaluated moves: {len(cpl)} | Median CPL: {median:.1f}"
+          f" | CPL >1000: {extreme} | Recorded move times: {coverage}")
+    if extreme:
+        print(_paint("  Very large CPL values can come from mate-score changes,"
+                     " already-lost positions, or genuine blunders; raw ACPL is not stable.",
+                     _DIM, use_color))
+    print()
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -437,7 +502,9 @@ def main() -> int:
         _print_summary(players_df, use_color)
         _print_players_table(_ranked(players_df), args.top, use_color)
 
+    _print_diagnostic_games(scored_view, args.top_games, use_color)
     _print_games_table(scored_view, args.top_games, use_color)
+    _print_move_quality(eval_df, args.player, use_color)
     print(_paint("Heuristic tiers only; not a cheating determination.", _DIM, use_color))
     if args.reference:
         print(_paint("Proxy percentiles compare against publicly unconfirmed accounts, "
