@@ -82,13 +82,19 @@ class CollectorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             (root / "pgn").mkdir()
+            (root / "status").mkdir()
+            status_bytes = json.dumps({"username": "tester"}).encode()
+            (root / "status" / "tester.json").write_bytes(status_bytes)
             (root / "pgn" / "a.pgn").write_bytes(b"changed")
             manifest = {
                 "schema": module.SCHEMA,
                 "accounts": [{"platform": "lichess", "player": "tester",
                               "account_key": "lichess:tester",
                               "split": module.split_for("lichess:tester"),
-                              "label": 0, "pgn_path": "pgn/a.pgn",
+                              "label": 0, "label_quality": "unconfirmed_not_clean",
+                              "status_path": "status/tester.json",
+                              "status_sha256": module.digest(status_bytes),
+                              "pgn_path": "pgn/a.pgn",
                               "pgn_sha256": module.digest(b"original")}]
             }
             (root / "manifest.json").write_text(json.dumps(manifest))
