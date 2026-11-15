@@ -173,7 +173,8 @@ def _print_header(args, raw_df, features_df, players_df, calibration, use_color:
         f"   {'Player-game rows':<18}{len(features_df)}"
         f"   {'Players':<8}{players_df['player'].nunique()}"
     )
-    print(f"  {'Calibration':<12}{status}")
+    if args.technical:
+        print(f"  {'Calibration':<12}{status}")
     print()
 
 
