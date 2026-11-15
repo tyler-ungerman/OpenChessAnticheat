@@ -1,7 +1,4 @@
 """Player style fingerprints: per-game metrics and deviation from game history.
-
-# Adapted from SentinelAntiCheat by AbdulAmi09
-# Source: https://github.com/AbdulAmi09/SentinelAntiCheat
 """
 
 from __future__ import annotations
