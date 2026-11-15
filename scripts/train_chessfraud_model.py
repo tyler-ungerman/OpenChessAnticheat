@@ -26,8 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from backend.src.detectors.pretrained_features import FEATURE_NAMES, from_chessfraud
 
-SOURCE = ("https://github.com/artem-lepin-ml/chess-fraud/releases/download/"
-          "v1.0-data/chess_fraud_tournament.csv")
+SOURCE = "artemlepin/chess-fraud"
+SOURCE_REVISION = "bd2804f268bf07c306217929db9b8dda5803392b"
 RANDOM_STATE = 20261115
 
 
@@ -93,6 +93,7 @@ def train(frame: pd.DataFrame, source_sha: str, *, min_auc: float = 0.60,
         "schema": "openchess-chessfraud-game-logistic-v1",
         "status": "experimental_not_deployment_calibrated",
         "source": SOURCE,
+        "source_revision": SOURCE_REVISION,
         "source_sha256": source_sha,
         "model_features": list(FEATURE_NAMES),
         "impute_medians": imputer.statistics_.tolist(),
@@ -131,23 +132,26 @@ def train(frame: pd.DataFrame, source_sha: str, *, min_auc: float = 0.60,
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--csv", default=SOURCE, help="Official release CSV or local snapshot")
+    parser.add_argument("--csv", type=Path, help="Optional local CSV snapshot; default is pinned Hugging Face dataset")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--metrics", type=Path, required=True)
     parser.add_argument("--min-auc", type=float, default=0.60)
     parser.add_argument("--min-gain", type=float, default=0.02)
     args = parser.parse_args()
-    if str(args.csv).startswith("http"):
-        import urllib.request
-        with urllib.request.urlopen(args.csv, timeout=120) as stream:
-            raw = stream.read(150_000_001)
+    if args.csv:
+        raw = args.csv.read_bytes()
+        if len(raw) > 150_000_000:
+            raise ValueError("Dataset exceeds 150MB")
+        source_sha = hashlib.sha256(raw).hexdigest()
+        from io import BytesIO
+        frame = pd.read_csv(BytesIO(raw), low_memory=False)
     else:
-        raw = Path(args.csv).read_bytes()
-    if len(raw) > 150_000_000:
-        raise ValueError("Dataset exceeds 150MB")
-    source_sha = hashlib.sha256(raw).hexdigest()
-    from io import BytesIO
-    frame = pd.read_csv(BytesIO(raw), low_memory=False)
+        from datasets import load_dataset
+        frame = load_dataset(SOURCE, "chess_fraud", split="full",
+                             revision=SOURCE_REVISION).to_pandas()
+        source_sha = hashlib.sha256(
+            pd.util.hash_pandas_object(frame, index=True).values.tobytes()
+        ).hexdigest()
     model, metrics = train(frame, source_sha, min_auc=args.min_auc, min_gain=args.min_gain)
     args.metrics.parent.mkdir(parents=True, exist_ok=True)
     args.metrics.write_text(json.dumps(metrics, indent=2, allow_nan=False) + "\n")
