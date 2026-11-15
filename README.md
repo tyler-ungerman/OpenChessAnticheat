@@ -161,3 +161,65 @@ probability also depends on the cohort's prevalence and label-selection process;
 it is not automatically the probability of cheating.
 
 Run safety regression tests with `python -m unittest discover -s tests -v`.
+
+## Public-label dataset quickstart (no API key)
+
+For a **reproducible evidence snapshot** rather than hand-curated cheating claims:
+
+```bash
+# From repo root, with requirements installed:
+python scripts/collect_public_labels.py collect \\
+  --seed-pgn datasets/games.pgn --platform chesscom \\
+  --out data/snapshots/my-first-snapshot \\
+  --user-agent "OpenChessAnticheat-research (contact: you@example.com)" \\
+  --fetch-games --max-accounts 200 --max-games 50
+
+# Offline audit checks stored identity/split and PGN byte checksums:
+python scripts/collect_public_labels.py verify \\
+  --out data/snapshots/my-first-snapshot
+```
+
+Alternatively supply a UTF-8 CSV with the columns `platform,player` (platform:
+`chesscom` or `lichess`) using `--accounts accounts.csv`. A PGN seed selects
+accounts already visible in those games; it does not guarantee any fair-play
+closures. Collection is serial to respect public API rate limits, retries
+transient errors, and records failures in `manifest.json`. A partially failed
+run is **not** a complete corpus. Each output directory is immutable: use a
+new directory to collect again. Snapshots are intentionally gitignored by
+the existing `data/` ignore rule. Do not upload account-level accusations.
+
+Account label semantics:
+- Chess.com `status=closed:fair_play_violations` becomes **1**,
+  documented public platform fair-play closure.
+- Lichess `tosViolation=true` becomes **1** but labelled generic
+  platform terms-of-service action; it is not verified to mean fair-play
+  assistance specifically.
+- All other statuses become **0 = unconfirmed**, NOT verified innocent.
+  Other account closure reasons are not positive fair-play examples.
+
+**Do not train or calibrate a cheating probability from this snapshot as-is.**
+It supplies traceable weak labels and PGNs; it does not establish the actual
+violation dates or which pre-closure games were assisted. Chess.com game exports
+retrieve up to the three latest month archives; Lichess exports the latest
+rated blitz/rapid games. Use a frozen acquisition cutoff and documented
+selection rules for any benchmark. In particular, avoid using games
+recorded after a closure or from widely differing time-control/game-count strata.
+
+### What must be pinned for a reproducible calibration
+
+Persist the snapshot `manifest.json` and PGNs, Git commit, Python and package
+versions, Stockfish binary/version and configuration (depth, nodes, threads,
+MultiPV), game-selection window, clean-reference account IDs, scoring and
+threshold code version, train/calibration/test account partitions, and all
+computed account scores. Re-running against **live** player statuses is a new
+snapshot, not a reproduction of the original one. Generate per-account reports
+with `python examples/analyze_pgn.py path/to/account.pgn --player ACCOUNT`
+once an account has enough eligible games.
+
+The current empirical-tail utility deliberately requires an independent
+account-score table and will return no p-value for fewer than 99 controls.
+It is **not automatically enabled**, because no audited, stratified control
+set or account-level false-positive study has yet been validated.
+
+Public sources: https://support.chess.com/en/articles/9650547-what-is-the-pubapi-and-how-do-i-use-it
+and https://lichess-org.github.io/api/.
