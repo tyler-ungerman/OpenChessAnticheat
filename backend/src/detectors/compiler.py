@@ -17,7 +17,7 @@ from .statistical_z import aggregate_player_scores, score_games
 
 @register_detector(
     "statistical_z_cusum",
-    description="7-Signal Dual-Anchored (Self + Control Elo-Cohort) Modified Z-scores with CUSUM & SPRT aggregation.",
+    description="Exploratory, uncalibrated behavioral anomaly scores; not cheating probabilities or adjudications.",
     default_enabled=True,
 )
 def run_statistical_detector(
@@ -64,9 +64,9 @@ def run_hmm_toggle_detector(
         first = grp.iloc[0]
         res = fit_game_hmm_toggle(grp)
         status = (
-            "flagged_toggle"
+            "exploratory_toggle_outlier"
             if (res["hmm_max_streak"] >= min_streak and res["hmm_llr"] >= min_llr)
-            else ("review_toggle" if res["hmm_max_streak"] >= 6 else "normal")
+            else ("exploratory_toggle_review" if res["hmm_max_streak"] >= 6 else "no_outlier_detected")
         )
         rows.append(
             {
@@ -94,7 +94,7 @@ def run_hmm_toggle_detector(
                 "mean_assisted_frac": round(float(grp["hmm_assisted_frac"].mean()), 4),
                 "max_assisted_streak": int(grp["hmm_max_streak"].max()),
                 "max_hmm_llr": round(float(grp["hmm_llr"].max()), 3),
-                "flagged_toggle_games": int((grp["status"] == "flagged_toggle").sum()),
+                "flagged_toggle_games": int((grp["status"] == "exploratory_toggle_outlier").sum()),
             }
         )
     player_df = pd.DataFrame(player_rows).sort_values("max_hmm_llr", ascending=False)
@@ -108,7 +108,7 @@ def run_hmm_toggle_detector(
 
 @register_detector(
     "bayesian_sprt_ensemble",
-    description="Full Bayesian SPRT ensemble fusing multi-depth surprise, HMM toggling, and meta-history checks.",
+    description="Legacy-name exploratory ensemble (not Bayesian-calibrated); no cheating probability or fair-play verdict.",
     default_enabled=True,
 )
 def run_bayesian_sprt_ensemble(

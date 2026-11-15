@@ -7,9 +7,8 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
 
-from .base import DetectorConfig
+from .base import DetectorConfig, MIN_SIGMA
 from .calibration import (
     _expected_acpl_for_elo,
     _expected_top1_for_elo,
@@ -33,15 +32,15 @@ def _robust_z(value: float | None, series: pd.Series, higher_is_suspicious: bool
 
     med = float(clean.median())
     mad = float((clean - med).abs().median())
+    # A degenerate or highly concentrated reference is not evidence of infinite surprise.
+    # The floors are conservative engineering safeguards, NOT empirical calibration.
+    scale_floor = MIN_SIGMA.get(str(series.name), 0.05)
     if mad > 1e-6:
-        z = (float(value) - med) / (1.4826 * mad)
+        z = (float(value) - med) / max(1.4826 * mad, scale_floor)
     else:
-        std = float(clean.std())
-        if std < 1e-6:
-            return 0.0
-        z = (float(value) - float(clean.mean())) / std
-
-    return z if higher_is_suspicious else -z
+        z = (float(value) - med) / max(float(clean.std()), scale_floor)
+    oriented = z if higher_is_suspicious else -z
+    return float(np.clip(oriented, -6.0, 6.0))
 
 
 def _max_valid(*values: float | None) -> float | None:
@@ -51,7 +50,7 @@ def _max_valid(*values: float | None) -> float | None:
 
 
 def _combine_z_scores(components: list[tuple[float | None, float]]) -> tuple[float, int]:
-    """Stouffer-like weighted combination of available standardized signals."""
+    """Weighted average of dependent signals; NOT a standard-normal Z statistic."""
     weighted_sum = 0.0
     active_weight = 0.0
     active_count = 0
@@ -66,9 +65,8 @@ def _combine_z_scores(components: list[tuple[float | None, float]]) -> tuple[flo
     if active_weight <= 0.0:
         return 0.0, 0
 
-    active_weights = [w for z, w in components if z is not None and math.isfinite(z)]
-    denom = math.sqrt(sum(w * w for w in active_weights))
-    composite_z = weighted_sum / denom if denom > 0 else 0.0
+    # Signal families overlap; Stouffer's independence denominator is invalid here.
+    composite_z = weighted_sum / active_weight
     return round(composite_z, 3), active_count
 
 
@@ -288,8 +286,7 @@ def score_games(
             ]
         )
 
-        tail_prob = float(norm.sf(composite_z))
-        anomaly_score_100 = round(100.0 * (1.0 - tail_prob), 2)
+        # No normal-tail probability: this score is not calibrated to a null distribution.
         sprt_llr_step = _game_sprt_llr(composite_z)
 
         all_z_channels = (
@@ -306,11 +303,11 @@ def score_games(
         if tc == "unknown":
             status = "untimed_excluded"
         elif composite_z >= cfg.flag_z_threshold and strong_signals >= 2:
-            status = "flagged_outlier"
+            status = "exploratory_outlier"
         elif composite_z >= cfg.review_z_threshold and strong_signals >= 2:
-            status = "elevated_review"
+            status = "exploratory_review"
         else:
-            status = "normal"
+            status = "no_outlier_detected"
 
         triggers: list[str] = []
         if z_accuracy is not None and z_accuracy >= 2.0:
@@ -367,7 +364,8 @@ def score_games(
                 ),
                 "composite_z": composite_z,
                 "sprt_llr_step": sprt_llr_step,
-                "anomaly_score_100": anomaly_score_100,
+                "null_p_value": None,
+                "calibration_status": "uncalibrated",
                 "status": status,
                 "triggers": ", ".join(triggers) if triggers else "none",
             }
@@ -387,7 +385,7 @@ def aggregate_player_scores(
     Roll up game-level anomaly scores into account/player-level verdicts using:
       - Rolling window Z-score peaks (`max_rolling5_z`)
       - One-sided CUSUM streak detection (`max_cusum`)
-      - Wald Sequential Probability Ratio Test (`max_sprt_llr`) with calibrated posterior probability
+      - Heuristic SPRT-like accumulation (`max_sprt_llr`); NOT a calibrated LLR
       - Longitudinal meta-history checks (post-loss rebound & opening-to-middlegame contradiction)
     """
     if scored_df.empty:
@@ -449,19 +447,14 @@ def aggregate_player_scores(
             if len(op_eval) >= 3 and len(mid_acpl) >= 3:
                 opening_contradiction = bool(op_eval.mean() <= -75.0 and mid_acpl.mean() <= 18.0)
 
-        # Calibrated posterior probability P(assisted | account_history) with prior = 0.02
-        prior_log_odds = math.log(0.02 / 0.98)
-        meta_boost = (0.65 if rebound_delta >= 1.25 else 0.0) + (0.75 if opening_contradiction else 0.0)
-        post_log_odds = prior_log_odds + max_sprt_llr + meta_boost
-        cheat_prob = round(1.0 / (1.0 + math.exp(-min(20.0, max(-20.0, post_log_odds)))), 4)
-
-        flagged_count = int((grp["status"] == "flagged_outlier").sum())
+        # Heuristic priorities only. These are not cheat labels or guarantees of innocence.
+        flagged_count = int((grp["status"] == "exploratory_outlier").sum())
         if max_sprt_llr >= cfg.sprt_flag_llr or (flagged_count >= 2 and max_rolling_z >= 3.2):
-            account_verdict = "flagged_cheater"
+            account_verdict = "manual_review_recommended"
         elif max_sprt_llr >= cfg.sprt_review_llr or flagged_count >= 1:
-            account_verdict = "elevated_review"
+            account_verdict = "statistical_outlier"
         else:
-            account_verdict = "clean"
+            account_verdict = "no_outlier_detected"
 
         summaries.append(
             {
@@ -477,7 +470,9 @@ def aggregate_player_scores(
                 "max_sprt_llr": round(max_sprt_llr, 3),
                 "rebound_z_delta": rebound_delta,
                 "opening_contradiction": opening_contradiction,
-                "cheat_probability": cheat_prob,
+                "null_p_value": None,
+                "calibration_status": "uncalibrated",
+                "calibration_note": "Heuristic scores only; no independent labelled account-level null distribution.",
                 "account_verdict": account_verdict,
                 "flagged_games": flagged_count,
                 "flagged_pct": round(100.0 * flagged_count / n_games, 1),

@@ -84,8 +84,8 @@ def main() -> int:
     print("\nPlayer summary:")
     print(players_view.head(args.top).to_string(index=False))
 
-    flagged = scored_view[scored_view["status"].isin(["flagged_outlier", "elevated_review"])]
-    print("\nFlagged / elevated games:")
+    flagged = scored_view[scored_view["status"].isin(["exploratory_outlier", "exploratory_review"])]
+    print("\nExploratory outlier / review games (NOT cheat verdicts):")
     print(flagged.head(args.top).to_string(index=False) if not flagged.empty else "none")
 
     if args.json_out:
