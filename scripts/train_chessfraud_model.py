@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.pipeline import Pipeline
@@ -71,26 +72,38 @@ def train(frame: pd.DataFrame, source_sha: str, *, min_auc: float = 0.60,
     for name, idx in zip(("train", "validation", "test"), (train_idx, valid_idx, test_idx)):
         if len(np.unique(y[idx])) != 2 or min(int(y[idx].sum()), int((1-y[idx]).sum())) < 5:
             raise ValueError(f"{name} needs >=5 positive and >=5 negative player-games")
-    pipeline = Pipeline([
-        ("impute", SimpleImputer(strategy="median", add_indicator=False)),
-        ("scale", StandardScaler()),
-        ("model", LogisticRegression(C=0.3, max_iter=2000, random_state=RANDOM_STATE)),
-    ])
-    pipeline.fit(X.iloc[train_idx], y[train_idx])
+    candidate_specs = (
+        ("logistic", LogisticRegression(C=0.3, max_iter=2000, random_state=RANDOM_STATE)),
+        ("random_forest", RandomForestClassifier(
+            n_estimators=150, max_depth=5, min_samples_leaf=12,
+            max_features=0.8, random_state=RANDOM_STATE, n_jobs=1)),
+    )
+    candidates = []
+    for family, estimator in candidate_specs:
+        candidate = Pipeline([
+            ("impute", SimpleImputer(strategy="median")),
+            ("scale", StandardScaler()),
+            ("model", estimator),
+        ])
+        candidate.fit(X.iloc[train_idx], y[train_idx])
+        val_pred = candidate.predict_proba(X.iloc[valid_idx])[:, 1]
+        candidates.append((auc(y[valid_idx], val_pred), family, candidate, val_pred))
+    # Select family only using validation accounts, not held-out test.
+    _, family, pipeline, val_pred = max(candidates, key=lambda row: row[0])
     model_proba = pipeline.predict_proba(X.iloc[test_idx])[:, 1]
     baseline = X.iloc[test_idx]["top1_rate"].to_numpy()
     baseline_auc = auc(y[test_idx], baseline)
     test = evaluate(y[test_idx], model_proba)
-    val = evaluate(y[valid_idx], pipeline.predict_proba(X.iloc[valid_idx])[:, 1])
+    val = evaluate(y[valid_idx], val_pred)
     passed = bool(test["roc_auc"] >= min_auc and test["roc_auc"] >= baseline_auc + min_gain)
     if not np.isfinite(baseline_auc):
         passed = False
     imputer = pipeline.named_steps["impute"]
     scaler = pipeline.named_steps["scale"]
     classifier = pipeline.named_steps["model"]
-    # sklearn model is converted to language-neutral, deterministic JSON.
     output = {
         "schema": "openchess-chessfraud-game-logistic-v1",
+        "model_family": family,
         "status": "experimental_not_deployment_calibrated",
         "source": SOURCE,
         "source_revision": SOURCE_REVISION,
@@ -99,14 +112,29 @@ def train(frame: pd.DataFrame, source_sha: str, *, min_auc: float = 0.60,
         "impute_medians": imputer.statistics_.tolist(),
         "scale_means": scaler.mean_.tolist(),
         "scale_std": scaler.scale_.tolist(),
-        "coefficients": classifier.coef_[0].tolist(),
-        "intercept": float(classifier.intercept_[0]),
         "time_control": "300+0",
         "minimum_moves": 12,
         "heldout_roc_auc": test["roc_auc"],
         "baseline_roc_auc": round(float(baseline_auc), 4),
         "not_a_real_world_probability": True,
     }
+    if family == "logistic":
+        output["coefficients"] = classifier.coef_[0].tolist()
+        output["intercept"] = float(classifier.intercept_[0])
+    else:
+        output["trees"] = []
+        for estimator in classifier.estimators_:
+            tree = estimator.tree_
+            output["trees"].append({
+                "left": tree.children_left.tolist(),
+                "right": tree.children_right.tolist(),
+                "feature": tree.feature.tolist(),
+                "threshold": tree.threshold.tolist(),
+                "positive": [
+                    float(values[1] / max(1e-12, sum(values)))
+                    for values in tree.value[:, 0, :].tolist()
+                ],
+            })
     metrics = {
         "dataset_rows": len(frame),
         "eligible_player_games": len(data),
@@ -117,6 +145,11 @@ def train(frame: pd.DataFrame, source_sha: str, *, min_auc: float = 0.60,
             for name, idx in zip(("train", "validation", "test"), (train_idx, valid_idx, test_idx))
         },
         "validation": val, "test": test,
+        "selected_family": family,
+        "candidate_validation_auc": {
+            candidate_family: round(float(candidate_auc), 4)
+            for candidate_auc, candidate_family, _, _ in candidates
+        },
         "baseline_test_auc": round(float(baseline_auc), 4),
         "passed_release_gate": passed,
         "gate": f"test_auc >= {min_auc} and gain >= {min_gain} against top1-only baseline",
