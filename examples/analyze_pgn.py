@@ -427,6 +427,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--multipv", type=int, default=3, help="MultiPV lines (default: 3)")
     parser.add_argument("--workers", type=int, default=4, help="Stockfish worker processes (default: 4)")
     parser.add_argument("--no-cache", action="store_true", help="Ignore the on-disk evaluation cache")
+    parser.add_argument("--exclude-opponent", action="append", default=[], metavar="USERNAME",
+                        help="Exclude all games involving a named opponent (repeatable)")
     parser.add_argument("--reference", type=Path, help="Optional frozen proxy reference JSON; never required")
     parser.add_argument("--platform", choices=("chesscom", "lichess"),
                         help="Platform of the PGN account; required with --reference")
@@ -448,7 +450,12 @@ def main() -> int:
         print(f"PGN not found: {args.pgn}", file=sys.stderr)
         return 2
 
-    raw_df = parse_pgn_for_detection(str(args.pgn))
+    raw_df = parse_pgn_for_detection(
+        str(args.pgn), extra_bot_names=set(args.exclude_opponent)
+    )
+    if args.exclude_opponent:
+        print("[game_history] Explicit opponent exclusions: "
+              + ", ".join(sorted(args.exclude_opponent)))
     if raw_df.empty:
         print("No games found in the PGN.", file=sys.stderr)
         return 1
