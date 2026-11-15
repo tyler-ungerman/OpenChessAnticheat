@@ -24,6 +24,8 @@ from src.detectors import (  # noqa: E402
     score_games,
 )
 from src.detectors.reference_compare import compare_accounts, read_proxy_reference  # noqa: E402
+from src.detectors.move_evidence import build_game_evidence  # noqa: E402
+from src.detectors.screening_summary import build_screening_summary  # noqa: E402
 from src.engine import EngineConfig, evaluate_games_df  # noqa: E402
 from src.features import build_features  # noqa: E402
 from src.ingestion import parse_pgn_for_detection  # noqa: E402
@@ -172,7 +174,8 @@ def _print_header(args, raw_df, features_df, players_df, calibration, use_color:
         f"   {'Player-game rows':<18}{len(features_df)}"
         f"   {'Players':<8}{players_df['player'].nunique()}"
     )
-    print(f"  {'Calibration':<12}{status}")
+    if args.technical:
+        print(f"  {'Calibration':<12}{status}")
     print()
 
 
@@ -384,6 +387,52 @@ def _print_diagnostic_games(scored_view, top: int, use_color: bool) -> None:
     print()
 
 
+def _print_product_summary(summaries: list[dict], use_color: bool) -> None:
+    """Single intuitive index followed by the top signal explanations."""
+    if not summaries:
+        print("  No eligible games for screening.\n")
+        return
+    print(_paint("Screening overview", _BOLD, use_color))
+    for row in summaries:
+        score = row["suspicion_index"]
+        print(f"  {row['player']} · {row['time_control']} · {row['games']} games")
+        print(f"    Suspicion index: {score}/100 ({row['suspicion_label']})"
+              f" · {row['review_games']} games crossed review thresholds")
+        top = row["indicator_shares"][:3]
+        if top:
+            print("    Main signals: " + ", ".join(
+                f"{item['signal']} ({item['share_percent']}% of positive signal)"
+                for item in top))
+        else:
+            print("    No positive anomaly signals identified.")
+        if row["review_games"] == 0:
+            print("    No individual games triggered a review warning.")
+        print()
+    print(_paint("  0-100 is a heuristic suspicion index, NOT a % chance of cheating.",
+                 _DIM, use_color))
+    print()
+
+
+def _print_move_evidence(games: list[dict], use_color: bool) -> None:
+    print(_paint("Games and moves to inspect", _BOLD, use_color))
+    if not games:
+        print("  No eligible game evidence available.")
+        return
+    for rank, game in enumerate(games, 1):
+        print(f"  {rank}. Game {game['game_id']} · {game.get('date') or 'unknown date'}"
+              f" · vs {game.get('opponent') or 'unknown'}"
+              f" · {game.get('time_control') or 'unknown'}"
+              f" · relative score {_num(game.get('screening_score'))}")
+        if not game['candidate_moves']:
+            print("     No qualifying difficult quiet engine-first moves identified.")
+        for move in game['candidate_moves']:
+            print(f"     Move {move['move_number']}: {move['san']} — {move['reason']}")
+        print()
+    print(_paint("  These are review candidates, not proof of assistance."
+                 " Pre-move FENs are saved in JSON for board replay.", _DIM, use_color))
+    print()
+
+
 def _print_move_quality(eval_df, player: str | None, use_color: bool) -> None:
     if eval_df is None or eval_df.empty or not player:
         return
@@ -429,6 +478,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--json-out", type=Path, help="Write the reported rows to a JSON file")
     parser.add_argument("--top", type=int, default=8, help="Players to show (default: 8)")
     parser.add_argument("--top-games", type=int, default=8, help="Games to show (default: 8)")
+    parser.add_argument("--top-moves", type=int, default=3, help="Evidence moves per game (default: 3)")
+    parser.add_argument("--technical", action="store_true", help="Show legacy statistical tables")
     parser.add_argument("--verbose", action="store_true", help="Append the full player table")
     parser.add_argument("--no-color", action="store_true", help="Disable ANSI colors")
     return parser.parse_args()
@@ -466,6 +517,7 @@ def main() -> int:
     calibration = load_calibration()
     scored_df = score_games(features_df, eval_df=eval_df, calibration=calibration)
     players_df = aggregate_player_scores(scored_df, features_df=features_df)
+    screening = build_screening_summary(scored_df, player=args.player)
     if args.reference:
         if not args.platform:
             print("--platform chesscom|lichess required with --reference", file=sys.stderr)
@@ -495,16 +547,26 @@ def main() -> int:
             )
             return 1
         players_view = _ranked(players_view)
-        _print_player_cards(players_view, use_color)
+        if args.technical:
+            _print_player_cards(players_view, use_color)
+        else:
+            _print_product_summary(screening, use_color)
     else:
         players_view = players_df
         scored_view = scored_df
-        _print_summary(players_df, use_color)
-        _print_players_table(_ranked(players_df), args.top, use_color)
+        if args.technical:
+            _print_summary(players_df, use_color)
+            _print_players_table(_ranked(players_df), args.top, use_color)
+        else:
+            _print_product_summary(screening[:args.top], use_color)
 
-    _print_diagnostic_games(scored_view, args.top_games, use_color)
-    _print_games_table(scored_view, args.top_games, use_color)
-    _print_move_quality(eval_df, args.player, use_color)
+    evidence = build_game_evidence(eval_df, scored_view, player=args.player,
+                                   top_games=args.top_games, top_moves=args.top_moves)
+    _print_move_evidence(evidence, use_color)
+    if args.technical:
+        _print_diagnostic_games(scored_view, args.top_games, use_color)
+        _print_games_table(scored_view, args.top_games, use_color)
+        _print_move_quality(eval_df, args.player, use_color)
     print(_paint("Heuristic tiers only; not a cheating determination.", _DIM, use_color))
     if args.reference:
         print(_paint("Proxy percentiles compare against publicly unconfirmed accounts, "
@@ -526,6 +588,8 @@ def main() -> int:
                 {
                     "player_summary": records(players_view),
                     "game_scores": records(scored_view),
+                    "move_evidence": evidence,
+                    "screening_overview": screening,
                 },
                 indent=2,
                 default=str,

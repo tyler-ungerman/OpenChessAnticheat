@@ -1,4 +1,24 @@
-# Chess Fair-Play Research & Screening
+# OpenChessAnticheat — PGN investigation
+
+Identify the games and **specific moves** worth reviewing in a chess account's PGN history.
+
+```bash
+python examples/analyze_pgn.py data/personal/games.pgn --player tyrjung --top-games 5
+```
+
+The default report starts with a **0–100 suspicion index** for each time
+control and a breakdown of the signals contributing most to unusual play.
+It then ranks games and identifies quiet engine-first moves worth replaying.
+The percentage-style index is a heuristic screening scale, **not** a calibrated
+chance of cheating or a complement giving the probability of being clean.
+`--json-out results.json` includes the index, its signal breakdown, and
+pre-move FENs for board replay. Stockfish and the PGN are the only requirements for
+running the standard analysis. **No separate calibration or dataset download.**
+
+Use `--technical` to show detailed game-level statistical tables and move
+data-quality diagnostics. Optional external reference comparison remains available,
+but is not required. The ranking is a heuristic lead generator, not a cheating verdict.
+
 
 Open-source behavioral screening for chess games. Multi-depth Stockfish evaluation, game-level
 behavioral features, and four independent detectors surface **exploratory deviations** for human
