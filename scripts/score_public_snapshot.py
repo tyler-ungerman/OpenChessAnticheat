@@ -9,12 +9,15 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import io
 import json
 import os
 import platform as system_platform
 import subprocess
 import sys
 from pathlib import Path
+
+import chess.pgn
 
 
 def sha256_file(path: Path) -> str:
@@ -25,17 +28,53 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def normalized_windows(pgn: Path, account: str, n_games: int) -> dict[str, bytes]:
+    """Freeze exactly n latest eligible player games per time-control category."""
+    from backend.src.features.engineering import _classify_time_control
+    from backend.src.ingestion.pgn import is_bot_game
+    groups: dict[str, list[tuple[str, chess.pgn.Game]]] = {}
+    with pgn.open(encoding="utf-8", errors="replace") as source:
+        while True:
+            game = chess.pgn.read_game(source)
+            if game is None:
+                break
+            if account.casefold() not in {
+                game.headers.get("White", "").casefold(),
+                game.headers.get("Black", "").casefold(),
+            } or is_bot_game(game.headers):
+                continue
+            tc = _classify_time_control(game.headers.get("TimeControl"))
+            if tc not in {"blitz", "rapid", "bullet"}:
+                continue
+            date = game.headers.get("UTCDate", game.headers.get("Date", ""))
+            clock = game.headers.get("UTCTime", "")
+            key = f"{date}|{clock}|{game.headers.get('Site', '')}"
+            groups.setdefault(tc, []).append((key, game))
+    result = {}
+    for tc, games in groups.items():
+        if len(games) < n_games:
+            continue
+        output = io.StringIO()
+        for _, game in sorted(games, key=lambda x: x[0])[-n_games:]:
+            print(game, file=output, end="\\n\\n")
+        result[tc] = output.getvalue().encode("utf-8")
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--snapshot", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True, help="New output directory")
     parser.add_argument("--depth", type=int, default=12)
+    parser.add_argument("--games-per-time-control", type=int, default=30,
+                        help="Freeze exactly this many most-recent games per account and time control")
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--stockfish", type=str, help="Path to Stockfish binary")
     args = parser.parse_args()
-    if args.depth < 1 or args.depth > 30 or args.workers < 1:
+    if args.depth < 1 or args.depth > 30 or args.workers < 1 or args.games_per_time_control < 5:
         parser.error("Invalid depth/workers")
     root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(root))
     snapshot = args.snapshot.resolve()
     manifest_path = snapshot / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -67,6 +106,7 @@ def main() -> int:
             sha256_file(Path(engine_binary)) if Path(engine_binary).is_file() else None
         ),
         "depth": args.depth, "workers": args.workers,
+        "games_per_time_control": args.games_per_time_control,
         "evaluation_code_sha256": sha256_file(root / "backend/src/engine/evaluation.py"),
         "scoring_code_sha256": sha256_file(root / "backend/src/detectors/statistical_z.py"),
         "feature_code_sha256": sha256_file(root / "backend/src/features/engineering.py"),
@@ -87,27 +127,43 @@ def main() -> int:
         if sha256_file(pgn) != row["pgn_sha256"]:
             lock["failures"].append({"account": row["account_key"], "reason": "pgn_hash_mismatch"})
             continue
-        destination = reports_dir / (hashlib.sha256(row["account_key"].encode()).hexdigest()[:20] + ".json")
-        cmd = [sys.executable, str(root / "examples/analyze_pgn.py"), str(pgn),
-               "--player", row["player"], "--depth", str(args.depth),
-               "--workers", str(args.workers), "--json-out", str(destination)]
-        run = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True)
-        if run.returncode != 0 or not destination.is_file():
-            lock["failures"].append({"account": row["account_key"], "reason": "scoring_failed",
-                                     "stderr_tail": run.stderr[-500:]})
+        windows = normalized_windows(pgn, row["player"], args.games_per_time_control)
+        if not windows:
+            lock.setdefault("skipped_short_history", []).append(row["account_key"])
             continue
-        report = json.loads(destination.read_text(encoding="utf-8"))
-        for record in report.get("player_summary", []):
+        for tc, window_pgn in sorted(windows.items()):
+            digest = hashlib.sha256((row["account_key"] + ":" + tc).encode()).hexdigest()[:20]
+            subset_pgn = reports_dir / (digest + ".pgn")
+            subset_pgn.write_bytes(window_pgn)
+            destination = reports_dir / (digest + ".json")
+            cmd = [sys.executable, str(root / "examples/analyze_pgn.py"), str(subset_pgn),
+                   "--player", row["player"], "--depth", str(args.depth),
+                   "--workers", str(args.workers), "--json-out", str(destination)]
+            run = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True)
+            if run.returncode != 0 or not destination.is_file():
+                lock["failures"].append({"account": row["account_key"], "time_control": tc,
+                                         "reason": "scoring_failed", "stderr_tail": run.stderr[-500:]})
+                continue
+            report = json.loads(destination.read_text(encoding="utf-8"))
+            summaries = [record for record in report.get("player_summary", [])
+                         if record["time_control"] == tc
+                         and int(record["games"]) == args.games_per_time_control]
+            if len(summaries) != 1:
+                lock["failures"].append({"account": row["account_key"], "time_control": tc,
+                                         "reason": "unexpected_window_summary"})
+                continue
+            record = summaries[0]
             lock["rows"].append({
                 "platform": row["platform"], "player": row["player"],
                 "account_key": row["account_key"], "split": row["split"],
                 "label": row["label"], "label_quality": row["label_quality"],
-                "time_control": record["time_control"], "games": record["games"],
+                "time_control": tc, "games": record["games"],
                 "mean_elo": record.get("mean_elo"),
                 "max_sprt_llr": record["max_sprt_llr"],
                 "max_single_z": record["max_single_z"],
                 "max_cusum": record["max_cusum"],
                 "report_sha256": sha256_file(destination),
+                "window_pgn_sha256": sha256_file(subset_pgn),
             })
         print(f"Scored {row['account_key']}", file=sys.stderr)
     lock["rows"].sort(key=lambda r: (r["account_key"], r["time_control"]))
