@@ -10,6 +10,10 @@ on:
       - '.github/workflows/train-pretrained.yml'
   workflow_dispatch:
 
+concurrency:
+  group: train-pretrained-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -57,5 +61,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add backend/models/chessfraud_v1.json backend/models/chessfraud_v1_metrics.json
-          git commit -m "Ship gated ChessFraud pretrained model and held-out metrics"
-          git push
+          git commit -m "Ship experimental ChessFraud pretrained model and held-out metrics"
+          git fetch origin "$GITHUB_REF_NAME"
+          git rebase "origin/$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
