@@ -258,3 +258,27 @@ used to declare guilt. To resolve a 0.1% tail in a stratum requires at least
 999 independent reference accounts; the default hash split assigns only
 20% of discovered accounts to calibration, so a much larger input pool is
 usually necessary. This is a population-size problem, not an optimizer bug.
+
+## Independent controlled-label benchmark: ChessFraud (recommended)
+
+[ChessFraud (KDD 2026)](https://huggingface.co/datasets/artemlepin/chess-fraud)
+contains observations of assisted and unassisted play under a controlled
+protocol. Unlike a platform closure, the dataset includes assistance
+annotations. Its small cohort (**49 players, one time control**) means it is
+appropriate for an independent positive-case diagnostic, **not** a basis for
+0.1% account false-positive claims or deployment outside that population.
+
+```bash
+# No API key, no synthetic labels, and third-party data are not git-committed.
+python scripts/fetch_chessfraud.py fetch --out data/benchmarks/chessfraud-v1
+python scripts/fetch_chessfraud.py verify --out data/benchmarks/chessfraud-v1
+```
+
+This fetches the authors' pinned `v1.0-data` release tournament CSV files.
+The snapshot records exact upstream URLs, row counts, schemas and file hashes;
+offline verification detects mutations or broken downloads. **The dataset
+fetcher does not yet evaluate the OpenChessAnticheat detector on the
+benchmark.** That requires a careful move/game reconstruction adapter and a
+player-grouped test, which must be added and verified separately. Do not mix
+its known assisted-play labels with Chess.com/Lichess account-closure labels.
+Credit the authors and review the upstream dataset-specific reuse terms.
