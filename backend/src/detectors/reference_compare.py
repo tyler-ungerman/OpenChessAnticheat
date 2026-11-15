@@ -6,6 +6,7 @@ assumes an unconfirmed platform account is clean.
 from __future__ import annotations
 
 import bisect
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -35,6 +36,9 @@ def read_proxy_reference(path: str | Path) -> dict:
             raise ValueError(f"Reference cohort {key!r} is undersized")
         if group.get("n_accounts") != len(values):
             raise ValueError(f"Reference cohort {key!r} has inconsistent sample size")
+        hashes = group.get("account_hashes")
+        if not isinstance(hashes, list) or len(hashes) != len(values) or len(set(hashes)) != len(values):
+            raise ValueError(f"Reference cohort {key!r} lacks unique account identities")
         if any(not isinstance(v, (int, float)) or not math.isfinite(v) for v in values):
             raise ValueError(f"Reference cohort {key!r} contains invalid scores")
         if values != sorted(values):
@@ -69,6 +73,11 @@ def compare_accounts(players: pd.DataFrame, reference: dict, *, platform: str) -
             metadata["proxy_reference_stratum"] = stratum
             group = cohorts.get(stratum)
             if group:
+                identity = hashlib.sha256(f"{platform}:{str(row['player']).casefold()}".encode("utf-8")).hexdigest()
+                if identity in group.get("account_hashes", []):
+                    metadata["proxy_reference_status"] = "account_in_reference"
+                    additions.append(metadata)
+                    continue
                 values = group["sorted_scores"]
                 val = float(row[statistic])
                 if math.isfinite(val):
