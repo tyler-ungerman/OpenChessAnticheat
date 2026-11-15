@@ -34,7 +34,8 @@ jobs:
         run: |
           python scripts/train_chessfraud_model.py \
             --out backend/models/chessfraud_v1.json \
-            --metrics data/pretrained_evaluation.json
+            --metrics data/pretrained_evaluation.json \
+            --experimental-release
       - name: Upload evaluation evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4
@@ -44,11 +45,11 @@ jobs:
             data/pretrained_evaluation.json
             backend/models/chessfraud_v1.json
           if-no-files-found: warn
-      - name: Publish weights only after evaluation gate passes
+      - name: Publish opt-in experimental weights only after experimental gate passes
         if: success()
         run: |
           if [ ! -f backend/models/chessfraud_v1.json ]; then
-            echo "NO SHIP: candidate failed benchmark gate"
+            echo "NO SHIP: candidate failed even experimental benchmark gate"
             exit 0
           fi
           mkdir -p backend/models
