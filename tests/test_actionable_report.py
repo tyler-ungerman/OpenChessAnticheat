@@ -35,7 +35,7 @@ class ReportTests(unittest.TestCase):
         self.assertIn("Games to inspect", text)
         self.assertIn("two", text)
         self.assertIn("accuracy 2.1", text)
-        self.assertLess(text.index("two"), text.index("one"))
+        self.assertLess(text.index("two", text.index("Largest signals")), text.index("one", text.index("Largest signals")))
 
     def test_cumulative_outlier_explained_and_capped_acpl_shown(self):
         rows = pd.DataFrame([{
