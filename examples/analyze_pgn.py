@@ -397,8 +397,8 @@ def _print_move_quality(eval_df, player: str | None, use_color: bool) -> None:
     extreme = int((cpl > 1000).sum())
     median = float(cpl.median())
     coverage = "unknown"
-    if "move_time" in moves.columns:
-        coverage = f"{100 * moves['move_time'].notna().mean():.0f}%"
+    if "time_spent" in moves.columns:
+        coverage = f"{100 * moves['time_spent'].notna().mean():.0f}%"
     print(_paint("Move-level data quality", _BOLD, use_color))
     print(f"  Evaluated moves: {len(cpl)} | Median CPL: {median:.1f}"
           f" | CPL >1000: {extreme} | Recorded move times: {coverage}")
