@@ -418,7 +418,7 @@ def _print_product_summary(summaries: list[dict], use_color: bool) -> None:
 def _print_move_evidence(games: list[dict], use_color: bool) -> None:
     print(_paint("Games and moves to inspect", _BOLD, use_color))
     if not games:
-        print("  No eligible game evidence available.")
+        print("  No notable moves found in the analyzed games.")
         return
     interesting = [game for game in games if game["candidate_count"] > 0]
     if not interesting:
@@ -605,7 +605,8 @@ def main() -> int:
     )
     assessment = summarize_history(all_evidence)
     print(_paint("Overall account assessment", _BOLD, use_color))
-    print(f"  {assessment['assessment']} · {assessment['games']} games"
+    print(f"  {assessment['assessment']} · {assessment['games']} "
+          f"{'game' if assessment['games'] == 1 else 'games'}"
           f" · {assessment['games_with_candidates']} games with notable moves")
     print(f"  {assessment['interpretation']}")
     print()
