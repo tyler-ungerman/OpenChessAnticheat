@@ -221,3 +221,42 @@ the first scoring call; `GET /health` reports whether cohort tables loaded.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Calibration is optional — everyday use never downloads a dataset
+
+The default command is the entire user workflow:
+
+```bash
+python examples/analyze_pgn.py my_games.pgn --player alice
+```
+
+It works with Stockfish and the supplied PGN, without creating or providing a
+reference dataset. Results are heuristic rankings (not a probability of cheating).
+
+**Optional one-time empirical reference**: use the public-account collection,
+scoring and reference scripts documented above, or provide a previously frozen
+`openchess-proxy-null-v1` JSON reference. The frozen file can be reused across
+runs; it is NOT recalculated per PGN.
+
+```bash
+python examples/analyze_pgn.py my_games.pgn --player alice \\
+  --reference data/references/my-first-reference.json \\
+  --platform chesscom --json-out results.json
+```
+
+The reference must match **platform, time control, 200-Elo rating bucket and
+exact number of games**. Otherwise the optional comparison reports why it
+cannot produce a percentile. For an existing default 30-game reference,
+provide exactly 30 eligible same-time-control games for the player; otherwise
+omit the reference flag and keep the ordinary analysis.
+
+A displayed `proxy_tail_p_value` describes extremeness among the publicly
+**unconfirmed** accounts used to build the reference, not proven-clean accounts.
+It is NOT a probability that the player is cheating, nor a validated false
+positive rate. The independent ChessFraud dataset can be used for evaluating
+assistance detection once its benchmark adapter is completed; downloading it
+does not automatically calibrate this detector.
+
+The code intentionally does not require (or silently load) the optional
+account-level reference. Third-party account datasets are not shipped with the
+repository.
