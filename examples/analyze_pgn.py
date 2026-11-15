@@ -39,12 +39,14 @@ _CYAN = "\033[36m"
 _VERDICT_LABELS = {
     "manual_review_recommended": "Manual review recommended",
     "statistical_outlier": "Statistical outlier",
+    "weak_cumulative_signal": "Weak cumulative signal",
     "no_outlier_detected": "No outlier detected",
     "not_calibrated": "Not calibrated",
 }
 _VERDICT_COLORS = {
     "manual_review_recommended": _RED,
     "statistical_outlier": _YELLOW,
+    "weak_cumulative_signal": _DIM,
     "no_outlier_detected": _GREEN,
     "not_calibrated": _DIM,
 }
@@ -59,7 +61,8 @@ _STATUS_COLORS = {
 _PRIORITY = {
     "manual_review_recommended": 0,
     "statistical_outlier": 1,
-    "no_outlier_detected": 2,
+    "weak_cumulative_signal": 2,
+    "no_outlier_detected": 3,
 }
 
 
@@ -233,6 +236,7 @@ def _print_player_cards(players_view, use_color: bool) -> None:
         if int(row.get("flagged_games") or 0) == 0 and verdict in {
             "manual_review_recommended",
             "statistical_outlier",
+            "weak_cumulative_signal",
         }:
             print(
                 _paint(
