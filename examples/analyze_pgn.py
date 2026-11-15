@@ -587,7 +587,6 @@ def main() -> int:
         players_view = _ranked(players_view)
         if args.technical:
             _print_player_cards(players_view, use_color)
-        else:
             _print_product_summary(screening, use_color)
     else:
         players_view = players_df
