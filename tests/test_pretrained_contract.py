@@ -60,6 +60,20 @@ class PretrainedContractTests(unittest.TestCase):
         rows["time_control"] = "300+0"
         self.assertEqual(score_pgn_games(rows, model)[0]["experimental_assistance_score"], 50.)
 
+    def test_tree_export_replay(self):
+        from backend.src.detectors.pretrained_inference import predict_feature_score
+        features = {name: 0.0 for name in FEATURE_NAMES}
+        model = {"model_family": "random_forest",
+                 "impute_medians": [0.] * len(FEATURE_NAMES),
+                 "scale_means": [0.] * len(FEATURE_NAMES),
+                 "scale_std": [1.] * len(FEATURE_NAMES),
+                 "trees": [{"left": [1, -1, -1], "right": [2, -1, -1],
+                            "feature": [0, -2, -2], "threshold": [0.5, -2., -2.],
+                            "positive": [0.5, 0.1, 0.9]}]}
+        self.assertAlmostEqual(predict_feature_score(features, model), 10.)
+        features[FEATURE_NAMES[0]] = 1.0
+        self.assertAlmostEqual(predict_feature_score(features, model), 90.)
+
     def test_logistic_export_replay(self):
         model = {"impute_medians": [0.] * len(FEATURE_NAMES),
                  "scale_means": [0.] * len(FEATURE_NAMES),
