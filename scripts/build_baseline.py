@@ -4,12 +4,12 @@
 The output is consumed by `backend/src/detectors/calibration.py` at
 `data/baseline.json`. It is optional: without it the detectors use Elo fallbacks.
 
-Control PGNs are expected as one account per file (`datasets/controls/<username>.pgn`).
+Control PGNs are expected as one account per file (`data/controls/<username>.pgn`).
 Each file's stem is treated as the focal control account.
 
 Examples:
-    python scripts/build_baseline.py --controls datasets/controls --out data/baseline.json
-    python scripts/build_baseline.py --controls datasets/controls --max-games-per-file 20 \
+    python scripts/build_baseline.py --controls data/controls --out data/baseline.json
+    python scripts/build_baseline.py --controls data/controls --max-games-per-file 20 \
         --export-moves data/controls_moves.jsonl.gz
 """
 from __future__ import annotations
@@ -31,7 +31,7 @@ from src.engine import EngineConfig, evaluate_games_df  # noqa: E402
 from src.features import build_features  # noqa: E402
 from src.ingestion import parse_pgn_for_detection  # noqa: E402
 
-DEFAULT_CONTROLS_DIR = REPO_ROOT / "datasets" / "controls"
+DEFAULT_CONTROLS_DIR = REPO_ROOT / "data" / "controls"
 DEFAULT_BASELINE_PATH = REPO_ROOT / "data" / "baseline.json"
 
 

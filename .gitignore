@@ -11,9 +11,8 @@ __pycache__/
 backend/main.py
 
 # Fetched or generated data
-datasets/games.pgn
-datasets/controls/
 data/
+
 
 # Engine evaluation cache
 backend/.cache/
