@@ -49,6 +49,26 @@ jobs:
             data/pretrained_evaluation.json
             backend/models/chessfraud_v1.json
           if-no-files-found: warn
+      - name: End-to-end PGN and packaged-model smoke test
+        if: success()
+        run: |
+          if [ ! -f backend/models/chessfraud_v1.json ]; then
+            echo "No approved experimental model to smoke test"
+            exit 0
+          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq stockfish
+          python examples/analyze_pgn.py examples/model_smoke_300.pgn \
+            --player alice --depth 3 --workers 2 \
+            --experimental-model --json-out /tmp/pretrained-smoke.json
+          python - <<'PY'
+          import json
+          report = json.load(open("/tmp/pretrained-smoke.json"))
+          scores = report["pretrained_game_scores"]
+          assert len(scores) == 1, scores
+          assert 0 <= scores[0]["experimental_assistance_score"] <= 100
+          print("END-TO-END PASS", scores)
+          PY
       - name: Publish opt-in experimental weights only after experimental gate passes
         if: success()
         run: |
