@@ -86,7 +86,7 @@ def score_pgn_games(eval_df: pd.DataFrame, model: dict | None, *,
     for (game_id, username), game in frame.groupby(["game_id", "player"], sort=True):
         # Inference cannot transfer unvalidated 5-minute training to bullet/rapid.
         tc = game["time_control"].astype(str).iloc[0]
-        if tc != "300+0":
+        if tc not in {"300+0", "300"}:
             continue
         values = from_local_game(game)
         if values is None:
