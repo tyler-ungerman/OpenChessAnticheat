@@ -222,3 +222,39 @@ set or account-level false-positive study has yet been validated.
 
 Public sources: https://support.chess.com/en/articles/9650547-what-is-the-pubapi-and-how-do-i-use-it
 and https://lichess-org.github.io/api/.
+
+### Freeze account windows and build an empirical reference
+
+After collecting the snapshot, run the existing engine pipeline once per qualifying
+account and time-control stratum. This requires Stockfish, and will take substantial
+CPU time for a large corpus:
+
+```bash
+python scripts/score_public_snapshot.py \\
+  --snapshot data/snapshots/my-first-snapshot \\
+  --out data/scored/my-first-run \\
+  --depth 12 --games-per-time-control 30 --workers 2
+
+python scripts/build_empirical_reference.py \\
+  --scores data/scored/my-first-run/score_manifest.json \\
+  --out data/references/my-first-reference.json \\
+  --games 30 --elo-width 200 --min-controls 99
+```
+
+The scoring stage freezes the latest **30 eligible games in each time-control
+category** for every player; insufficient histories are excluded. It writes
+the exact subset PGNs and model reports, plus engine/version/settings and code
+hashes for replay. The reference stage uses only the account-disjoint
+`calibration` split and reports empirical ranks for the untouched `test`
+split; accounts are matched by platform, time control, 200-Elo bucket, and
+exact game count. It refuses incomplete scoring runs and skips reference
+strata with fewer than 99 accounts.
+
+**This is a proxy reference, not a verified clean-account null.** Its
+`proxy_tail_p_value` answers only how extreme a score is relative to the
+sample of publicly *unconfirmed* accounts in that stratum. It does not
+establish a genuine fair-play false-positive rate. It is never automatically
+used to declare guilt. To resolve a 0.1% tail in a stratum requires at least
+999 independent reference accounts; the default hash split assigns only
+20% of discovered accounts to calibration, so a much larger input pool is
+usually necessary. This is a population-size problem, not an optimizer bug.
