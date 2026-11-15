@@ -2,14 +2,23 @@
 
 Behavioral screening for chess games. Stockfish evaluates every move, engineered
 features summarize how a player performs under pressure, and behavioral detectors flag
-statistical outliers against personal history and a rating-matched control cohort.
+exploratory deviations against personal history and a presumed-clean rating-matched cohort.
+
+> **Research-only.** The current heuristic anomaly scores are **not** calibrated
+> cheating probabilities or adjudications. A high score does not establish misconduct;
+> a low score does not establish innocence. No independent account-level false-positive
+> rate has been measured. Outputs have `null_p_value: null` and
+> `calibration_status: uncalibrated` until an independently held-out account-level
+> reference has been validated. The legacy `bayesian_sprt_ensemble` API name remains
+> for compatibility, but its accumulated score is not a calibrated Bayesian posterior
+> or validated sequential likelihood ratio.
 
 ## What it does
 
 - **Move evaluation** — Stockfish MultiPV at shallow and full depth, with a persistent cache.
 - **Behavioral features** — accuracy/CPL, critical and quiet-critical precision, Regan-style
   move-choice sensitivity, HMM toggling, clock pacing, phase and deficit/scramble shifts.
-- **Detectors** — `statistical_z_cusum`, `hmm_toggle_detector`, `bayesian_sprt_ensemble`, and
+- **Detectors (exploratory only)** — `statistical_z_cusum`, `hmm_toggle_detector`, `bayesian_sprt_ensemble`, and
   `game_style_fingerprint` (RMS deviation from a player's prior style profile: accuracy,
   engine-match rate, tactical precision, volatility, blunder rate, opening profile).
 - **HTTP API** — analyze raw PGN text or a server-side `.pgn` file. All four detectors run by default.
