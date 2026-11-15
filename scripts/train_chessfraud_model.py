@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -135,6 +136,15 @@ def train(frame: pd.DataFrame, source_sha: str, *, min_auc: float = 0.60,
                     for values in tree.value[:, 0, :].tolist()
                 ],
             })
+    # Verify exported JSON runs identically to the fitted sklearn model.
+    # This is the actual shipped inference path, not a placeholder mock.
+    from backend.src.detectors.pretrained_inference import predict_feature_score
+    samples = X.iloc[test_idx[:min(32, len(test_idx))]]
+    for sample, expected in zip(samples.to_dict(orient="records"),
+                                pipeline.predict_proba(samples)[:, 1]):
+        actual = predict_feature_score(sample, output) / 100.0
+        if not math.isclose(actual, float(expected), abs_tol=1e-6, rel_tol=1e-6):
+            raise ValueError(f"Exported model diverges from sklearn: {actual} vs {expected}")
     metrics = {
         "dataset_rows": len(frame),
         "eligible_player_games": len(data),
@@ -146,6 +156,7 @@ def train(frame: pd.DataFrame, source_sha: str, *, min_auc: float = 0.60,
         },
         "validation": val, "test": test,
         "selected_family": family,
+        "json_inference_replay_checked": min(32, len(test_idx)),
         "candidate_validation_auc": {
             candidate_family: round(float(candidate_auc), 4)
             for candidate_auc, candidate_family, _, _ in candidates
