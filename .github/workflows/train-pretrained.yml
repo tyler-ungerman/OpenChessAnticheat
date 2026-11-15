@@ -81,6 +81,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add backend/models/chessfraud_v1.json backend/models/chessfraud_v1_metrics.json
+          if git diff --cached --quiet; then
+            echo "Packaged model and metrics already match trained artifact"
+            exit 0
+          fi
           git commit -m "Ship experimental ChessFraud pretrained model and held-out metrics"
           git fetch origin "$GITHUB_REF_NAME"
           git rebase "origin/$GITHUB_REF_NAME"
