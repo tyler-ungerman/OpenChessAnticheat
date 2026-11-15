@@ -75,6 +75,33 @@ def predict_feature_score(features: dict[str, float], model: dict) -> float:
     return float(100.0 / (1.0 + math.exp(-logit)))
 
 
+def eligible_game_diagnostics(eval_df: pd.DataFrame, *,
+                              player: str | None = None) -> dict:
+    """Summarize why a pretrained model could not score this PGN.
+
+    Use raw PGN TimeControl headers, NOT normalized blitz/rapid/bullet buckets.
+    """
+    result = {"game_time_controls": {}, "eligible_5min_games": 0,
+              "insufficient_moves_5min_games": 0,
+              "other_time_control_games": 0}
+    if eval_df.empty:
+        return result
+    frame = eval_df
+    if player:
+        frame = frame[frame["player"].astype(str).str.casefold() == player.casefold()]
+    for (_, _), game in frame.groupby(["game_id", "player"], sort=False):
+        tc = str(game["time_control"].iloc[0]).strip()
+        result["game_time_controls"][tc] = result["game_time_controls"].get(tc, 0) + 1
+        if tc in {"300", "300+0"}:
+            if from_local_game(game) is None:
+                result["insufficient_moves_5min_games"] += 1
+            else:
+                result["eligible_5min_games"] += 1
+        else:
+            result["other_time_control_games"] += 1
+    return result
+
+
 def score_pgn_games(eval_df: pd.DataFrame, model: dict | None, *,
                     player: str | None = None) -> list[dict]:
     if model is None or eval_df.empty:

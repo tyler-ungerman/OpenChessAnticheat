@@ -26,7 +26,9 @@ from src.detectors import (  # noqa: E402
 from src.detectors.reference_compare import compare_accounts, read_proxy_reference  # noqa: E402
 from src.detectors.move_evidence import build_game_evidence  # noqa: E402
 from src.detectors.screening_summary import build_screening_summary  # noqa: E402
-from src.detectors.pretrained_inference import load_pretrained_model, score_pgn_games  # noqa: E402
+from src.detectors.pretrained_inference import (  # noqa: E402
+    load_pretrained_model, score_pgn_games, eligible_game_diagnostics,
+)
 from src.engine import EngineConfig, evaluate_games_df  # noqa: E402
 from src.features import build_features  # noqa: E402
 from src.ingestion import parse_pgn_for_detection  # noqa: E402
@@ -441,7 +443,8 @@ def _print_pretrained_scores(games: list[dict], model: dict | None,
     print(_paint("Experimental pretrained assistance model (5-minute blitz only)",
                  _BOLD, use_color))
     if not games:
-        print("  No eligible 300+0 games with at least 12 evaluated moves.\n")
+        print("  No eligible 5+0 games with at least 12 evaluated moves.")
+        print("  Other blitz formats (e.g. 3+0 or 3+2) are NOT supported by this model.")
         return
     for item in games[:8]:
         print(f"  Game {item['game_id']}: {item['experimental_assistance_score']:.1f}/100"
@@ -550,6 +553,8 @@ def main() -> int:
         print(f"Invalid packaged model: {exc}", file=sys.stderr)
         return 2
     experimental_scores = score_pgn_games(eval_df, pretrained, player=args.player)
+    pretrained_coverage = (eligible_game_diagnostics(eval_df, player=args.player)
+                           if pretrained is not None else None)
     if args.reference:
         if not args.platform:
             print("--platform chesscom|lichess required with --reference", file=sys.stderr)
@@ -596,6 +601,18 @@ def main() -> int:
                                    top_games=args.top_games, top_moves=args.top_moves)
     _print_move_evidence(evidence, use_color)
     _print_pretrained_scores(experimental_scores, pretrained, use_color)
+    if pretrained_coverage is not None:
+        controls = pretrained_coverage["game_time_controls"]
+        if controls:
+            breakdown = ", ".join(
+                f"{tc}: {count}" for tc, count in
+                sorted(controls.items(), key=lambda item: (-item[1], item[0]))
+            )
+            print("  PGN TimeControl values: " + breakdown)
+        short = pretrained_coverage["insufficient_moves_5min_games"]
+        if short:
+            print(f"  Excluded {short} 5+0 games with fewer than 12 evaluated moves.")
+        print()
     if args.technical:
         _print_diagnostic_games(scored_view, args.top_games, use_color)
         _print_games_table(scored_view, args.top_games, use_color)
@@ -624,6 +641,7 @@ def main() -> int:
                     "move_evidence": evidence,
                     "screening_overview": screening,
                     "pretrained_game_scores": experimental_scores,
+                    "pretrained_coverage": pretrained_coverage,
                 },
                 indent=2,
                 default=str,
