@@ -1,5 +1,6 @@
 """Opt-in proxy reference checks. No Stockfish or remote data needed."""
 import json
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +17,8 @@ def reference():
             "elo_bucket_width": 200,
             "cohorts": {"chesscom:blitz:1400": {
                 "n_accounts": 99, "sorted_scores": [1.0] * 99,
+                "account_hashes": [hashlib.sha256(f"chesscom:reference{i}".encode()).hexdigest()
+                                   for i in range(99)],
                 "source": "unconfirmed_status_accounts_NOT_proven_clean"}}}
 
 
@@ -52,6 +55,13 @@ class OptionalReferenceTests(unittest.TestCase):
             p.write_text(json.dumps(ref))
             with self.assertRaises(ValueError):
                 read_proxy_reference(p)
+
+    def test_self_reference_never_compares(self):
+        raw = pd.DataFrame([{"player": "reference0", "time_control": "blitz", "games": 30,
+                             "mean_elo": 1450, "max_sprt_llr": 3.0}])
+        out = compare_accounts(raw, reference(), platform="chesscom")
+        self.assertEqual(out.iloc[0]["proxy_reference_status"], "account_in_reference")
+        self.assertTrue(pd.isna(out.iloc[0]["proxy_tail_p_value"]))
 
     def test_ties_are_conservative(self):
         raw = pd.DataFrame([{"player": "case", "time_control": "blitz", "games": 30,
