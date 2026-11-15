@@ -7,7 +7,7 @@ import pandas as pd
 
 from backend.src.detectors.pretrained_features import FEATURE_NAMES, from_chessfraud, from_local_game
 from backend.src.detectors.pretrained_inference import (
-    predict_feature_score, score_pgn_games,
+    predict_feature_score, score_pgn_games, eligible_game_diagnostics,
 )
 
 
@@ -73,6 +73,22 @@ class PretrainedContractTests(unittest.TestCase):
         self.assertAlmostEqual(predict_feature_score(features, model), 10.)
         features[FEATURE_NAMES[0]] = 1.0
         self.assertAlmostEqual(predict_feature_score(features, model), 90.)
+
+    def test_raw_chesscom_time_controls_are_reported_and_not_conflated(self):
+        sample = pd.DataFrame([{
+            "game_id": index, "player": "alice", "time_control": tc,
+            "move_uci": "e2e4", "best_move": "e2e4",
+            "shallow_best_move": "e2e4", "eval_before": 0,
+            "ply": ply, "centipawn_loss": 0, "time_spent": 2.0,
+        } for index, tc, count in ((1, "180+0", 20), (2, "300", 20),
+                                   (3, "300+0", 6), (4, "180+2", 20))
+          for ply in range(1, count + 1)])
+        summary = eligible_game_diagnostics(sample, player="alice")
+        self.assertEqual(summary["game_time_controls"],
+                         {"180+0": 1, "300": 1, "300+0": 1, "180+2": 1})
+        self.assertEqual(summary["eligible_5min_games"], 1)
+        self.assertEqual(summary["insufficient_moves_5min_games"], 1)
+        self.assertEqual(summary["other_time_control_games"], 2)
 
     def test_logistic_export_replay(self):
         model = {"impute_medians": [0.] * len(FEATURE_NAMES),
