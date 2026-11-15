@@ -8,6 +8,10 @@ from typing import Any, Callable
 import pandas as pd
 
 
+# Safety floors for sparse or degenerate cohorts; not statistical calibration.
+MIN_SIGMA = {"choice_sensitivity_s": 0.08, "capped_acpl": 8.0, "top1_rate": 0.05}
+
+
 @dataclass(frozen=True)
 class DetectorConfig:
     min_history_games: int = 8
@@ -22,7 +26,7 @@ class DetectorConfig:
     # Thresholds for flagging games
     flag_z_threshold: float = 2.5
     review_z_threshold: float = 1.8
-    # SPRT decision bounds (Wald thresholds: alpha=0.001, beta=0.05 -> A ≈ 6.85)
+    # Exploratory ranking thresholds only; no validated alpha/beta or FPR guarantee.
     sprt_flag_llr: float = 6.85
     sprt_review_llr: float = 4.20
 
