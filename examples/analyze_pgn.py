@@ -553,6 +553,8 @@ def main() -> int:
         print(f"Invalid packaged model: {exc}", file=sys.stderr)
         return 2
     experimental_scores = score_pgn_games(eval_df, pretrained, player=args.player)
+    pretrained_coverage = (eligible_game_diagnostics(eval_df, player=args.player)
+                           if pretrained is not None else None)
     if args.reference:
         if not args.platform:
             print("--platform chesscom|lichess required with --reference", file=sys.stderr)
@@ -599,6 +601,18 @@ def main() -> int:
                                    top_games=args.top_games, top_moves=args.top_moves)
     _print_move_evidence(evidence, use_color)
     _print_pretrained_scores(experimental_scores, pretrained, use_color)
+    if pretrained_coverage is not None:
+        controls = pretrained_coverage["game_time_controls"]
+        if controls:
+            breakdown = ", ".join(
+                f"{tc}: {count}" for tc, count in
+                sorted(controls.items(), key=lambda item: (-item[1], item[0]))
+            )
+            print("  PGN TimeControl values: " + breakdown)
+        short = pretrained_coverage["insufficient_moves_5min_games"]
+        if short:
+            print(f"  Excluded {short} 5+0 games with fewer than 12 evaluated moves.")
+        print()
     if args.technical:
         _print_diagnostic_games(scored_view, args.top_games, use_color)
         _print_games_table(scored_view, args.top_games, use_color)
@@ -627,6 +641,7 @@ def main() -> int:
                     "move_evidence": evidence,
                     "screening_overview": screening,
                     "pretrained_game_scores": experimental_scores,
+                    "pretrained_coverage": pretrained_coverage,
                 },
                 indent=2,
                 default=str,
