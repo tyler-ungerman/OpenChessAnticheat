@@ -499,8 +499,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top-games", type=int, default=8, help="Games to show (default: 8)")
     parser.add_argument("--top-moves", type=int, default=3, help="Evidence moves per game (default: 3)")
     parser.add_argument("--technical", action="store_true", help="Show legacy statistical tables")
+    parser.add_argument("--experimental-model", action="store_true",
+                        help="Opt in to ChessFraud pretrained model for 300+0 blitz games")
     parser.add_argument("--no-model", action="store_true",
-                        help="Disable optional bundled pretrained classifier")
+                        help="Disable model inference (legacy explicit opt-out)")
     parser.add_argument("--verbose", action="store_true", help="Append the full player table")
     parser.add_argument("--no-color", action="store_true", help="Disable ANSI colors")
     return parser.parse_args()
@@ -540,7 +542,10 @@ def main() -> int:
     players_df = aggregate_player_scores(scored_df, features_df=features_df)
     screening = build_screening_summary(scored_df, player=args.player)
     try:
-        pretrained = None if args.no_model else load_pretrained_model()
+        pretrained = load_pretrained_model() if args.experimental_model and not args.no_model else None
+        if args.experimental_model and not args.no_model and pretrained is None:
+            print("No packaged experimental model found in backend/models/.", file=sys.stderr)
+            return 2
     except (OSError, ValueError) as exc:
         print(f"Invalid packaged model: {exc}", file=sys.stderr)
         return 2
