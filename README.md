@@ -1,4 +1,21 @@
-# Chess Fair-Play Research & Screening
+# OpenChessAnticheat — PGN investigation
+
+Identify the games and **specific moves** worth reviewing in a chess account's PGN history.
+
+```bash
+python examples/analyze_pgn.py data/personal/games.pgn --player tyrjung --top-games 5
+```
+
+The default report ranks games, identifies quiet engine-first moves in contested
+positions, and explains concrete reasons such as a large gap to the engine's
+second choice and unusually fast play. `--json-out results.json` adds pre-move
+FENs for board replay. Stockfish and the PGN are the only requirements for
+running the standard analysis. **No separate calibration or dataset download.**
+
+Use `--technical` to show detailed game-level statistical tables and move
+data-quality diagnostics. Optional external reference comparison remains available,
+but is not required. The ranking is a heuristic lead generator, not a cheating verdict.
+
 
 Open-source behavioral screening for chess games. Multi-depth Stockfish evaluation, game-level
 behavioral features, and four independent detectors surface **exploratory deviations** for human
