@@ -187,7 +187,7 @@ def run_collect(args: argparse.Namespace) -> int:
     client = PublicClient(args.user_agent, args.pause)
     seed_bytes = None
     seed_paths = list(args.seed_pgn)
-    if args.seed_user:
+    if getattr(args, 'seed_user', None):
         if not args.platform:
             raise ValueError("--platform required with --seed-user")
         platform, user = validate_account(args.platform, args.seed_user)
