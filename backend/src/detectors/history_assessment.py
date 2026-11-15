@@ -14,22 +14,26 @@ def summarize_history(evidence: list[dict]) -> dict:
     with_evidence = [item for item in evidence if item["candidate_count"] > 0]
     repeat_games = [item for item in evidence if item["candidate_count"] >= 2]
     candidates = sum(item["candidate_count"] for item in evidence)
+    game_alerts = sum(
+        item.get("game_status") in {"exploratory_outlier", "exploratory_review"}
+        for item in evidence
+    )
 
-    # Many quiet, precise moves are ordinary chess. Only repeated *games*
-    # support elevating the review priority, avoiding a single tactical game
-    # or one excellent engine-first move becoming an account alert.
+    # A large archive of genuine human chess naturally contains many precise
+    # engine-first moves. Counts alone are NOT an account-level cheating signal.
+    # Require concordance with multiple independent game-level review tiers.
     if games < 8:
         label = "Limited history"
         interpretation = "Not enough games to assess repeated patterns."
-    elif len(repeat_games) >= 3:
+    elif game_alerts >= 2 and len(repeat_games) >= 2:
         label = "Review recommended"
-        interpretation = "Several games contain multiple difficult engine-matching decisions."
-    elif len(with_evidence) >= 2:
-        label = "Some moves worth reviewing"
-        interpretation = "There are isolated notable moves, but no consistent assisted-play pattern established."
+        interpretation = "Multiple independently unusual games also contain repeated noteworthy decisions."
+    elif len(with_evidence) >= 1:
+        label = "Moves worth examining"
+        interpretation = "Some decisions merit review, but no supported account-level assisted-play pattern emerged."
     else:
-        label = "No sustained indicators"
-        interpretation = "No recurring difficult engine-matching pattern was found."
+        label = "No strong indicators"
+        interpretation = "The analysis did not identify notable move-level evidence."
 
     return {
         "games": games,
@@ -37,6 +41,7 @@ def summarize_history(evidence: list[dict]) -> dict:
         "games_with_candidates": len(with_evidence),
         "games_with_repeated_candidates": len(repeat_games),
         "candidate_moves": candidates,
+        "game_review_alerts": game_alerts,
         "assessment": label,
         "interpretation": interpretation,
         "meaning": "Uncalibrated review priority; cannot establish cheating or innocence.",
