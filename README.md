@@ -6,10 +6,13 @@ Identify the games and **specific moves** worth reviewing in a chess account's P
 python examples/analyze_pgn.py data/personal/games.pgn --player tyrjung --top-games 5
 ```
 
-The default report ranks games, identifies quiet engine-first moves in contested
-positions, and explains concrete reasons such as a large gap to the engine's
-second choice and unusually fast play. `--json-out results.json` adds pre-move
-FENs for board replay. Stockfish and the PGN are the only requirements for
+The default report starts with a **0–100 suspicion index** for each time
+control and a breakdown of the signals contributing most to unusual play.
+It then ranks games and identifies quiet engine-first moves worth replaying.
+The percentage-style index is a heuristic screening scale, **not** a calibrated
+chance of cheating or a complement giving the probability of being clean.
+`--json-out results.json` includes the index, its signal breakdown, and
+pre-move FENs for board replay. Stockfish and the PGN are the only requirements for
 running the standard analysis. **No separate calibration or dataset download.**
 
 Use `--technical` to show detailed game-level statistical tables and move
