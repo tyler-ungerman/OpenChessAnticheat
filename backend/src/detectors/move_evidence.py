@@ -29,6 +29,9 @@ def _candidate(row: dict) -> dict | None:
     loss = _number(row.get("centipawn_loss"))
     if legal < 12 or gap < 40 or eval_cp is None or abs(eval_cp) > 250:
         return None
+    move_number = int(row.get("move_number") or (int(row["ply"])+1)//2)
+    if move_number < 10:
+        return None
     if loss is None or loss > 35:
         return None
     # A valuable, non-obvious candidate in a competitive position.
@@ -41,7 +44,7 @@ def _candidate(row: dict) -> dict | None:
         reason += f"; played in {seconds:.1f}s"
     return {
         "ply": int(row["ply"]),
-        "move_number": int(row.get("move_number") or (int(row["ply"])+1)//2),
+        "move_number": move_number,
         "san": str(row.get("move_san") or row.get("move_uci") or "?"),
         "fen_before": str(row.get("fen_before") or ""),
         "best_move_uci": row.get("best_move"),
@@ -63,7 +66,6 @@ def build_game_evidence(eval_df: pd.DataFrame, scored_df: pd.DataFrame,
     scored = scored_df.copy()
     if player is not None:
         scored = scored[scored["player"].astype(str).str.casefold() == player.casefold()]
-    scored = scored.sort_values(["composite_z", "game_id"], ascending=[False, True]).head(top_games)
     result = []
     for game in scored.to_dict(orient="records"):
         frame = eval_df[
@@ -73,9 +75,9 @@ def build_game_evidence(eval_df: pd.DataFrame, scored_df: pd.DataFrame,
         moves = [_candidate(row) for row in frame.to_dict(orient="records")]
         candidates = [move for move in moves if move is not None]
         candidates.sort(key=lambda move: (-move["_points"], move["ply"]))
-        shown = candidates[:top_moves]
-        for move in shown:
-            move.pop("_points", None)
+        shown = [{key: value for key, value in move.items() if key != "_points"}
+                 for move in candidates[:top_moves]]
+        strength = sum(move["_points"] for move in candidates[:5])
         result.append({
             "game_id": game["game_id"],
             "date": game.get("date"),
@@ -86,9 +88,12 @@ def build_game_evidence(eval_df: pd.DataFrame, scored_df: pd.DataFrame,
             "total_evaluated_moves": int(frame["centipawn_loss"].notna().sum()),
             "candidate_moves": shown,
             "candidate_count": len(candidates),
-            "note": ("Specific quiet, engine-first moves worth replaying."
-                     if candidates else
-                     "No qualifying difficult quiet engine-first moves found; "
-                     "game ranking may reflect relative accuracy alone."),
+            "review_priority": round(strength, 2),
+            "note": ("Quiet, non-opening engine-first decisions worth inspecting."
+                     if candidates else "No notable move evidence found."),
         })
-    return result
+    # Evidence first, not arbitrary anomaly score first.
+    result.sort(key=lambda row: (-row["review_priority"],
+                                 -float(row.get("screening_score") or 0),
+                                 str(row["game_id"])))
+    return result[:top_games]
