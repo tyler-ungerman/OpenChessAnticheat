@@ -1,7 +1,7 @@
 name: Safety regression tests
 on:
   push:
-    branches: ["fix/uncalibrated-verdict-safety"]
+    branches: ["main", "fix/uncalibrated-verdict-safety", "feat/reproducible-public-calibration-datasets"]
   pull_request:
   workflow_dispatch:
 jobs:
