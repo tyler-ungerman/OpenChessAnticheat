@@ -451,7 +451,11 @@ def _print_human_sequences(report: dict, use_color: bool) -> None:
         print(f"  {report['ineligible_games']} other or short games use the regular screening.")
     ranked = [g for g in report["ranked_games"] if g["sequence_score"] > 0]
     if not ranked:
-        print("  No unusually engine-like sequences surfaced.\n")
+        print("  No sequences with sufficient non-forcing evidence surfaced.")
+        if report.get("suppressed_low_context_windows"):
+            print(f"  {report['suppressed_low_context_windows']} high-scoring windows "
+                  "contained fewer than three quiet decisions.")
+        print()
         return
     for i, row in enumerate(ranked, 1):
         print(f"  {i}. Game {row['game_id']} · {row.get('date') or '?'}"
@@ -470,6 +474,9 @@ def _print_human_sequences(report: dict, use_color: bool) -> None:
         if examples:
             print("     Quiet engine-first choices: " + ", ".join(examples))
         print(f"     Best window selected from {row['windows_searched']} possible windows")
+    if report.get("suppressed_low_context_windows"):
+        print(f"  Omitted {report['suppressed_low_context_windows']} high-scoring"
+              " windows with fewer than 3 quiet decisions.")
     print(_paint("  Scoring still includes tactical moves. Quiet decision counts "
                  "are explanatory; selecting the best of many windows exaggerates "
                  "how unusual 5/5 looks. Not a cheating probability.", _DIM, use_color))
