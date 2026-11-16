@@ -451,20 +451,35 @@ def _print_human_sequences(report: dict, use_color: bool) -> None:
         print(f"  {report['ineligible_games']} other or short games use the regular screening.")
     ranked = [g for g in report["ranked_games"] if g["sequence_score"] > 0]
     if not ranked:
-        print("  No unusually engine-like sequences surfaced.\n")
+        print("  No sequences with sufficient non-forcing evidence surfaced.")
+        if report.get("suppressed_low_context_windows"):
+            print(f"  {report['suppressed_low_context_windows']} high-scoring windows "
+                  "contained fewer than three quiet decisions.")
+        print()
         return
     for i, row in enumerate(ranked, 1):
         print(f"  {i}. Game {row['game_id']} · {row.get('date') or '?'}"
               f" · {row['time_control']} · sequence score {row['sequence_score']:+.2f}")
         print(f"     Moves {row['start_move']}–{row['end_move']}: "
-              f"{row['engine_first_count']}/5 matched Stockfish's top move; "
-              f"human baseline expected {row['human_expected_engine_first']:.1f}/5")
-        choices = [f"{m['move_number']}.{m['san']}" for m in row["moves"]
-                   if m["is_engine_top1"]]
-        if choices:
-            print("     Engine-first decisions: " + ", ".join(choices))
-    print(_paint("  Ranking shows unusual five-move patterns, NOT an assisted-play "
-                 "probability or fair-play verdict.", _DIM, use_color))
+              f"{row['engine_first_count']}/5 matched Stockfish's top move "
+              f"(human baseline {row['human_expected_engine_first']:.1f}/5)")
+        quiet = row['quiet_decision_count']
+        print(f"     Non-forcing decisions: {row['quiet_engine_first_count']}/{quiet}"
+              f" matched Stockfish (expected {row['quiet_expected_engine_first']:.1f}/{quiet})")
+        if row['tactical_or_constrained_count']:
+            print(f"     {row['tactical_or_constrained_count']} tactical/constrained moves "
+                  f"(captures, checks or limited options) in this window")
+        examples = [f"{m['move_number']}.{m['san']}" for m in row['moves']
+                    if m['is_engine_top1'] and m['is_informative_quiet_move']]
+        if examples:
+            print("     Quiet engine-first choices: " + ", ".join(examples))
+        print(f"     Best window selected from {row['windows_searched']} possible windows")
+    if report.get("suppressed_low_context_windows"):
+        print(f"  Omitted {report['suppressed_low_context_windows']} high-scoring"
+              " windows with fewer than 3 quiet decisions.")
+    print(_paint("  Scoring still includes tactical moves. Quiet decision counts "
+                 "are explanatory; selecting the best of many windows exaggerates "
+                 "how unusual 5/5 looks. Not a cheating probability.", _DIM, use_color))
     print()
 
 

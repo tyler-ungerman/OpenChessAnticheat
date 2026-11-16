@@ -1,11 +1,12 @@
 """Human-choice sequence integration and time-control guards."""
 import unittest
+from unittest.mock import patch
 
 import chess
 import pandas as pd
 
 from backend.src.detectors.human_sequence import (
-    load_human_prior, scan_human_sequences,
+    load_human_prior, scan_human_sequences, _move_context,
 )
 
 
@@ -36,6 +37,52 @@ class SequenceTests(unittest.TestCase):
         self.assertEqual(report["ranked_games"][0]["engine_first_count"], 5)
         self.assertIn("human_top1_probability", report["ranked_games"][0]["moves"][0])
         self.assertNotIn("cheat_probability", str(report))
+
+    def test_forcing_tactics_not_called_quiet_evidence(self):
+        board = chess.Board()
+        self.assertEqual(_move_context(board.fen(), "e2e4"), "quiet decision")
+        board.push_uci("e2e4")
+        board.push_uci("d7d5")
+        self.assertEqual(_move_context(board.fen(), "e4d5"), "capture")
+        forced = chess.Board("4k3/8/8/8/8/8/4r3/4K3 w - - 0 1")
+        self.assertTrue(forced.is_check())
+        self.assertEqual(_move_context(forced.fen(), next(iter(forced.legal_moves)).uci()),
+                         "responding to check")
+
+    def test_same_sequence_score_but_truthful_quiet_breakdown(self):
+        model = load_human_prior()
+        frame = pd.DataFrame(rows(7, "180", 20))
+        frame.loc[0, "move_uci"] = "not_legal"
+        report = scan_human_sequences(frame, model, player="alice")
+        candidate = report["ranked_games"][0]
+        self.assertEqual(candidate["engine_first_count"], 5)
+        self.assertIn("quiet_decision_count", candidate)
+        self.assertEqual(
+            candidate["tactical_or_constrained_count"] + candidate["quiet_decision_count"],
+            5
+        )
+        self.assertGreaterEqual(candidate["windows_searched"], 1)
+
+    def test_tactical_only_sequences_are_hidden_not_relabelled(self):
+        model = load_human_prior()
+        frame = pd.DataFrame(rows(14, "180", 20))
+        with patch("backend.src.detectors.human_sequence._move_context", return_value="check"):
+            report = scan_human_sequences(frame, model, player="alice")
+        self.assertEqual(report["eligible_games"], 1)
+        self.assertEqual(report["scored_moves"], 20)
+        self.assertEqual(report["ranked_games"], [])
+        self.assertEqual(report["suppressed_low_context_windows"], 1)
+
+    def test_castling_is_not_counted_as_unexpected_quiet_decision(self):
+        board = chess.Board()
+        for move in ("e2e4", "e7e5", "g1f3", "b8c6", "f1e2",
+                     "g8f6"):
+            board.push_uci(move)
+        self.assertTrue(board.is_castling(chess.Move.from_uci("e1g1")))
+        self.assertEqual(_move_context(board.fen(), "e1g1"), "castling")
+
+    def test_missing_valid_move_is_not_quiet_evidence(self):
+        self.assertEqual(_move_context(chess.Board().fen(), "not_legal"), "unknown")
 
     def test_no_model_stays_optional(self):
         frame = pd.DataFrame(rows(1, "180"))
