@@ -78,9 +78,13 @@ def score_group(df: pd.DataFrame, model: dict) -> dict:
         new_score = selected["score"]
         # Same quiet-only eligible windows and same fixed denominator for baseline.
         quiet_baseline = peak_five_choice_window(t.astype(float), t, pp, q)
+        discounted = peak_five_choice_window(
+            s, t, pp, q, forcing_weight=0.25
+        )
         entries.append({
             "assisted": y, "old_model": old_score, "old_engine": old_engine,
             "quiet_model": new_score, "quiet_engine": quiet_baseline["score"],
+            "discounted_model": discounted["score"],
             "old_fully_engine": bool((t[start_old:start_old+5] == 1).all()),
             "new_informative_moves": selected["informative_count"],
         })
@@ -97,7 +101,7 @@ def score_group(df: pd.DataFrame, model: dict) -> dict:
         "scores": {
             k: {"auc": _auc(y, result[k]), "average_precision":
                 round(float(average_precision_score(y, result[k])), 4)}
-            for k in ("old_engine", "old_model", "quiet_engine", "quiet_model")
+            for k in ("old_engine", "old_model", "quiet_engine", "quiet_model", "discounted_model")
         },
         "unassisted_original_perfect_five_rate": round(
             float(result.loc[y==0, "old_fully_engine"].mean()), 4),
@@ -123,12 +127,13 @@ def main():
         "cohorts": results,
         "note": "Held-out players from original human prior, but scoring policy refined after observing real examples; comparative exploratory evidence.",
         "deployment_decision": (
-            "QUIET_POLICY_SUPPORTED" if all(
-                results[k]["scores"]["quiet_model"]["auc"] >=
-                results[k]["scores"]["old_model"]["auc"] - 0.03
+            "DISCOUNTED_POLICY_SUPPORTED" if all(
+                results[k]["scores"]["discounted_model"]["auc"] >=
+                results[k]["scores"]["old_model"]["auc"] - 0.02
                 for k in results
-            ) else "QUIET_POLICY_LOSES_TOO_MUCH_AUC"
+            ) else "DISCOUNTED_POLICY_LOSES_TOO_MUCH_AUC"
         ),
+        "candidate_note": "Only one additional choice tested: 25% weight for forcing decisions, requiring at least 3 quiet moves per window.",
     }
     out = ROOT / "data" / "forcing_window_metrics.json"
     out.parent.mkdir(parents=True, exist_ok=True)
