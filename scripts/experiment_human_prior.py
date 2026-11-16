@@ -106,7 +106,7 @@ def evaluate(model: dict, tournament: pd.DataFrame, participants: list[str]) -> 
 
 
 def model_predict(frame: pd.DataFrame, model: dict) -> np.ndarray:
-    x = frame.loc[:, FEATURE_NAMES].to_numpy(dtype=float)
+    x = frame.loc[:, FEATURE_NAMES].to_numpy(dtype=float, copy=True)
     missing = ~np.isfinite(x)
     x[missing] = np.broadcast_to(model["impute"], x.shape)[missing]
     x = (x - np.asarray(model["mean"])) / np.asarray(model["scale"])
