@@ -1,54 +1,44 @@
-# OpenChessAnticheat — PGN investigation
+# OpenChessAnticheat
 
-## Simple everyday detection workflow
-
-```bash
-python examples/analyze_pgn.py data/personal/games.pgn --player tyrjung
-```
-
-Install the four CLI Python dependencies with `pip install -r requirements-cli.txt` and
-install Stockfish (`brew install stockfish` on macOS). No API server or ML
-training libraries are needed.
-
-One command, no calibration, no training or model downloads. Stockfish analyzes
-uncached positions once; future runs reuse evaluations. The default report
-summarizes the account and prioritizes games with actual, replayable
-engine-matching decisions, not statistical Z-score spikes. It covers bullet,
-blitz and rapid from the same PGN. No single move is a cheating verdict; an
-account review recommendation requires multiple qualifying games. The
-experimental pretrained 5+0-only model is still available behind
-`--experimental-model`, but is not the default and does not cover 3+0/10+0.
-
-`--technical` reveals legacy diagnostics. `--json-out results.json` stores
-candidate moves, FENs, and the overall account assessment.
-
-
-Identify the games and **specific moves** worth reviewing in a chess account's PGN history.
+Run a local chess fair-play screen on a PGN archive. No login, web service,
+manual calibration, model training, or ML runtime is required.
 
 ```bash
-python examples/analyze_pgn.py data/personal/games.pgn --player tyrjung --top-games 5
+# Install once (macOS)
+brew install stockfish
+python3 -m pip install -r requirements-cli.txt
+
+# Inspect a player's games
+python3 examples/analyze_pgn.py data/personal/games.pgn \
+  --player tyrjung --json-out results.json
 ```
 
-The default report starts with a **0–100 suspicion index** for each time
-control and a breakdown of the signals contributing most to unusual play.
-It then ranks games and identifies quiet engine-first moves worth replaying.
-The percentage-style index is a heuristic screening scale, **not** a calibrated
-chance of cheating or a complement giving the probability of being clean.
-`--json-out results.json` includes the index, its signal breakdown, and
-pre-move FENs for board replay. Stockfish and the PGN are the only requirements for
-running the standard analysis. **No separate calibration or dataset download.**
+The default output gives an account assessment and ranked **five-move
+human-adjusted engine-choice sequences** in 3+0, 3+2, 5+0 or 5+3 blitz.
+A small bundled JSON model estimates which engine moves comparable human
+players would tend to choose in each position. The application contrasts
+actual sustained engine-first decisions with that human baseline.
+Other time controls (including 1+0 bullet and 10+0 rapid) continue using
+the existing Stockfish screening rather than extrapolated model scores.
 
-Use `--technical` to show detailed game-level statistical tables and move
-data-quality diagnostics. Optional external reference comparison remains available,
-but is not required. The ranking is a heuristic lead generator, not a cheating verdict.
+Technical game scores and individual moves are still available with
+`--technical`. Disable the human-prior ranking with `--no-human-prior`.
+No percentage is a calibrated cheating probability, and any ranking is
+a lead for chess review—not a determination of assistance.
 
+**Evidence for the bundled experimental model:** trained on 70,000 genuine
+human decisions, tested against ChessFraud assisted-play annotations. On two
+player-disjoint controlled-tournament cohorts, its five-move sequence AUC was
+0.694 vs 0.610 and 0.711 vs 0.643 for simple Stockfish agreement. The
+second-cohort follow-up was exploratory, and neither cohort measures the
+false-accusation rate on public Chess.com accounts. The model is experimental.
+The original strict move-level gain gate did not pass.
 
-Open-source behavioral screening for chess games. Multi-depth Stockfish evaluation, game-level
-behavioral features, and four independent detectors surface **exploratory deviations** for human
-review.
+## Advanced components
 
-It is built for researchers, event organizers, and players auditing their own games. It does **not**
-issue cheating verdicts, automated bans, or conclusions about a person.
+The remaining sections document the older exploratory detectors, optional
+calibration scripts and reproducible research utilities. None is required
+for the one-command PGN workflow.
 
 ## Design principles
 
