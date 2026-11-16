@@ -456,15 +456,20 @@ def _print_human_sequences(report: dict, use_color: bool) -> None:
     for i, row in enumerate(ranked, 1):
         print(f"  {i}. Game {row['game_id']} · {row.get('date') or '?'}"
               f" · {row['time_control']} · sequence score {row['sequence_score']:+.2f}")
+        informative = row["informative_moves"]
         print(f"     Moves {row['start_move']}–{row['end_move']}: "
-              f"{row['engine_first_count']}/5 matched Stockfish's top move; "
-              f"human baseline expected {row['human_expected_engine_first']:.1f}/5")
+              f"{row['engine_first_count']}/{informative} quiet decisions matched "
+              f"Stockfish; human baseline {row['human_expected_engine_first']:.1f}/{informative}")
+        if row["excluded_forcing_moves"]:
+            print(f"     {row['excluded_forcing_moves']} forcing move(s) excluded from evidence")
         choices = [f"{m['move_number']}.{m['san']}" for m in row["moves"]
-                   if m["is_engine_top1"]]
+                   if m["is_engine_top1"] and m["is_informative_quiet_move"]]
         if choices:
-            print("     Engine-first decisions: " + ", ".join(choices))
-    print(_paint("  Ranking shows unusual five-move patterns, NOT an assisted-play "
-                 "probability or fair-play verdict.", _DIM, use_color))
+            print("     Non-forcing engine matches: " + ", ".join(choices))
+    print(_paint("  Only quiet decisions contribute; captures, checks and forcing moves "
+                 "are discounted. The highest window is selected from each game, so "
+                 "baseline expectations are descriptive, not p-values.", _DIM, use_color))
+    print(_paint("  Not a cheating probability or fair-play verdict.", _DIM, use_color))
     print()
 
 
