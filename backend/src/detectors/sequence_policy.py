@@ -33,12 +33,15 @@ def informative_choice(fen: object, move_uci: object) -> bool:
 
 def peak_five_choice_window(
     surprises: np.ndarray, top1: np.ndarray, human_probs: np.ndarray,
-    informative: np.ndarray, *, min_quiet: int = MIN_QUIET_DECISIONS
+    informative: np.ndarray, *, min_quiet: int = MIN_QUIET_DECISIONS,
+    forcing_weight: float = 0.0
 ) -> dict | None:
     surprises = np.asarray(surprises, dtype=float)
     top1 = np.asarray(top1, dtype=int)
     human_probs = np.asarray(human_probs, dtype=float)
     informative = np.asarray(informative, dtype=bool)
+    if not 0 <= forcing_weight <= 1:
+        raise ValueError("forcing_weight must be between 0 and 1")
     n = len(surprises)
     if n < WINDOW_MOVES or any(len(x) != n for x in (top1, human_probs, informative)):
         return None
@@ -51,7 +54,9 @@ def peak_five_choice_window(
             continue
         # Fixed denominator of 5 prevents 3/5 quiet windows from getting a
         # disproportionate score; excluded forcing moves add exactly zero.
-        score = float(np.where(good[indices], surprises[indices], 0.0).sum() / WINDOW_MOVES)
+        weights = np.where(good[indices], 1.0, forcing_weight)
+        finite = np.isfinite(surprises[indices])
+        score = float(np.where(finite, weights * surprises[indices], 0.0).sum() / WINDOW_MOVES)
         candidate_indices.append((score, start, count))
     if not candidate_indices:
         return None
