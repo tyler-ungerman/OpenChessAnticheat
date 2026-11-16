@@ -1,5 +1,6 @@
 """Human-choice sequence integration and time-control guards."""
 import unittest
+from unittest.mock import patch
 
 import chess
 import pandas as pd
@@ -61,6 +62,27 @@ class SequenceTests(unittest.TestCase):
             5
         )
         self.assertGreaterEqual(candidate["windows_searched"], 1)
+
+    def test_tactical_only_sequences_are_hidden_not_relabelled(self):
+        model = load_human_prior()
+        frame = pd.DataFrame(rows(14, "180", 20))
+        with patch("backend.src.detectors.human_sequence._move_context", return_value="check"):
+            report = scan_human_sequences(frame, model, player="alice")
+        self.assertEqual(report["eligible_games"], 1)
+        self.assertEqual(report["scored_moves"], 20)
+        self.assertEqual(report["ranked_games"], [])
+        self.assertEqual(report["suppressed_low_context_windows"], 1)
+
+    def test_castling_is_not_counted_as_unexpected_quiet_decision(self):
+        board = chess.Board()
+        for move in ("e2e4", "e7e5", "g1f3", "b8c6", "f1e2",
+                     "g8f6"):
+            board.push_uci(move)
+        self.assertTrue(board.is_castling(chess.Move.from_uci("e1g1")))
+        self.assertEqual(_move_context(board.fen(), "e1g1"), "castling")
+
+    def test_missing_valid_move_is_not_quiet_evidence(self):
+        self.assertEqual(_move_context(chess.Board().fen(), "not_legal"), "unknown")
 
     def test_no_model_stays_optional(self):
         frame = pd.DataFrame(rows(1, "180"))
