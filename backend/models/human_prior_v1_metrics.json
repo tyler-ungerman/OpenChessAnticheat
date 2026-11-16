@@ -1,0 +1,49 @@
+{
+  "experiment": "real-human-choice-prior-v1-replication",
+  "first_holdout": {
+    "game": {
+      "assisted_games": 77,
+      "baseline_sequence_auc": 0.6101,
+      "games": 183,
+      "human_surprise_sequence_auc": 0.6942
+    },
+    "move": {
+      "assisted_rows": 1582,
+      "baseline_top1_ap": 0.35,
+      "baseline_top1_auc": 0.6029,
+      "human_surprise_ap": 0.4128,
+      "human_surprise_auc": 0.6182,
+      "rows": 5372
+    }
+  },
+  "first_holdout_players": 10,
+  "note": "The second-cohort game AUC comparison is exploratory after seeing the first-cohort result; not a fresh preregistered final test.",
+  "original_gate": "move AUC gain >= 0.02 AND game sequence AUC >= baseline",
+  "passed_original_gate": false,
+  "replicated_game_improvement": true,
+  "second_game_auc_gain": 0.0681,
+  "second_holdout": {
+    "game": {
+      "assisted_games": 86,
+      "baseline_sequence_auc": 0.6429,
+      "games": 219,
+      "human_surprise_sequence_auc": 0.711
+    },
+    "move": {
+      "assisted_rows": 1630,
+      "baseline_top1_ap": 0.2887,
+      "baseline_top1_auc": 0.5965,
+      "human_surprise_ap": 0.3326,
+      "human_surprise_auc": 0.6117,
+      "rows": 6736
+    }
+  },
+  "second_holdout_players": 10,
+  "source_revision": "bd2804f268bf07c306217929db9b8dda5803392b",
+  "training": {
+    "human_choice_logloss_train": 0.5807,
+    "human_top1_rate": 0.3878,
+    "human_training_rows": 70000,
+    "json_replay_checked": 64
+  }
+}
