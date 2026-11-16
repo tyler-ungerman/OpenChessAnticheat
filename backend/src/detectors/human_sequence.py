@@ -20,6 +20,7 @@ MODEL_PATH = Path(__file__).resolve().parents[2] / "models" / "human_prior_v1.js
 SUPPORTED_CONTROLS = {"180", "180+0", "180+2", "300", "300+0", "300+3"}
 WINDOW_MOVES = 5
 MIN_GAME_MOVES = 12
+MIN_DISPLAY_QUIET_DECISIONS = 3
 
 
 def load_human_prior(path: Path | str = MODEL_PATH) -> dict | None:
@@ -60,6 +61,8 @@ def _move_context(fen: object, played_uci: object) -> str:
             return "responding to check"
         if board.legal_moves.count() < 8:
             return "few legal choices"
+        if board.is_castling(move):
+            return "castling"
         if board.is_capture(move):
             return "capture"
         if board.gives_check(move):
@@ -77,6 +80,7 @@ def scan_human_sequences(eval_df: pd.DataFrame, model: dict | None,
         "model": model.get("schema") if model is not None else None,
         "eligible_games": 0, "ineligible_games": 0,
         "scored_moves": 0, "ranked_games": [],
+        "suppressed_low_context_windows": 0,
         "description": ("Observed Stockfish choices compared with a lightweight "
                         "position-adjusted human baseline. Scores are NOT probabilities of cheating."),
     }
@@ -147,6 +151,11 @@ def scan_human_sequences(eval_df: pd.DataFrame, model: dict | None,
                 "time_spent_seconds": (float(row["time_spent"])
                                        if pd.notna(row.get("time_spent")) else None),
             })
+        if quiet_count < MIN_DISPLAY_QUIET_DECISIONS:
+            # Detection score is not changed; this only prevents the CLI
+            # from suggesting a sequence lacking interpretable move evidence.
+            output["suppressed_low_context_windows"] += 1
+            continue
         output["ranked_games"].append({
             "game_id": game_id, "player": username,
             "time_control": tc, "date": game["date"].iloc[0] if "date" in game else None,
