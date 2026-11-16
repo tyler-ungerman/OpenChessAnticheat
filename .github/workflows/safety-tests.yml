@@ -1,7 +1,7 @@
 name: Safety regression tests
 on:
   push:
-    branches: ["main", "fix/uncalibrated-verdict-safety", "feat/reproducible-public-calibration-datasets", "feat/simple-evidence-first-screening"]
+    branches: ["main", "fix/uncalibrated-verdict-safety", "feat/reproducible-public-calibration-datasets", "feat/simple-evidence-first-screening", "feat/human-sequence-screening"]
   pull_request:
   workflow_dispatch:
 jobs:
@@ -30,4 +30,45 @@ jobs:
           assert assessment["assessment"] == "Limited history"
           assert isinstance(report["move_evidence"], list)
           print("END-TO-END PASS", assessment)
+          PY
+
+      - name: Test real Stockfish PGN to human-sequence inference
+        run: |
+          python - <<'PY'
+          import chess
+          import chess.pgn
+          import random
+          rng = random.Random(12)
+          game = chess.pgn.Game()
+          game.headers["White"] = "alice"
+          game.headers["Black"] = "bob"
+          game.headers["WhiteElo"] = "1550"
+          game.headers["BlackElo"] = "1520"
+          game.headers["TimeControl"] = "180"
+          game.headers["Date"] = "2026.11.16"
+          board = game.board()
+          node = game
+          for i in range(90):
+              if board.is_game_over():
+                  break
+              legal = list(board.legal_moves)
+              move = rng.choice(legal)
+              node = node.add_variation(move)
+              board.push(move)
+          with open("/tmp/human-sequence-smoke.pgn", "w") as fh:
+              print(game, file=fh)
+          assert board.fullmove_number >= 25, board.fullmove_number
+          PY
+          /tmp/openchess-cli-only/bin/python examples/analyze_pgn.py \
+            /tmp/human-sequence-smoke.pgn --player alice \
+            --depth 3 --workers 2 --json-out /tmp/human-sequence-smoke.json
+          python - <<'PY'
+          import json
+          result = json.load(open("/tmp/human-sequence-smoke.json"))
+          evidence = result["human_sequence_screening"]
+          assert evidence["model"] == "openchess-human-choice-v1", evidence
+          assert evidence["eligible_games"] == 1, evidence
+          assert len(evidence["ranked_games"]) == 1, evidence
+          assert len(evidence["ranked_games"][0]["moves"]) == 5
+          print("END-TO-END HUMAN SEQUENCE PASS", evidence["ranked_games"][0]["sequence_score"])
           PY
