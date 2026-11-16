@@ -26,6 +26,7 @@ from src.detectors import (  # noqa: E402
 from src.detectors.reference_compare import compare_accounts, read_proxy_reference  # noqa: E402
 from src.detectors.move_evidence import build_game_evidence  # noqa: E402
 from src.detectors.history_assessment import summarize_history  # noqa: E402
+from src.detectors.human_sequence import load_human_prior, scan_human_sequences  # noqa: E402
 from src.detectors.screening_summary import build_screening_summary  # noqa: E402
 from src.detectors.pretrained_inference import load_pretrained_model, score_pgn_games  # noqa: E402
 from src.engine import EngineConfig, evaluate_games_df  # noqa: E402
@@ -440,6 +441,33 @@ def _print_move_evidence(games: list[dict], use_color: bool) -> None:
     print()
 
 
+def _print_human_sequences(report: dict, use_color: bool) -> None:
+    if not report["model"]:
+        return
+    print(_paint("Human-adjusted engine-like sequences", _BOLD, use_color))
+    print(f"  {report['eligible_games']} eligible blitz games analyzed "
+          f"({report['scored_moves']} moves).")
+    if report["ineligible_games"]:
+        print(f"  {report['ineligible_games']} other or short games use the regular screening.")
+    ranked = [g for g in report["ranked_games"] if g["sequence_score"] > 0]
+    if not ranked:
+        print("  No unusually engine-like sequences surfaced.\n")
+        return
+    for i, row in enumerate(ranked, 1):
+        print(f"  {i}. Game {row['game_id']} · {row.get('date') or '?'}"
+              f" · {row['time_control']} · sequence score {row['sequence_score']:+.2f}")
+        print(f"     Moves {row['start_move']}–{row['end_move']}: "
+              f"{row['engine_first_count']}/5 matched Stockfish's top move; "
+              f"human baseline expected {row['human_expected_engine_first']:.1f}/5")
+        choices = [f"{m['move_number']}.{m['san']}" for m in row["moves"]
+                   if m["is_engine_top1"]]
+        if choices:
+            print("     Engine-first decisions: " + ", ".join(choices))
+    print(_paint("  Ranking shows unusual five-move patterns, NOT an assisted-play "
+                 "probability or fair-play verdict.", _DIM, use_color))
+    print()
+
+
 def _print_pretrained_scores(games: list[dict], model: dict | None,
                              use_color: bool) -> None:
     if model is None:
@@ -505,6 +533,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top-games", type=int, default=8, help="Games to show (default: 8)")
     parser.add_argument("--top-moves", type=int, default=3, help="Evidence moves per game (default: 3)")
     parser.add_argument("--technical", action="store_true", help="Show legacy statistical tables")
+    parser.add_argument("--no-human-prior", action="store_true",
+                        help="Disable bundled human-choice sequence detector")
     parser.add_argument("--experimental-model", action="store_true",
                         help="Opt in to ChessFraud pretrained model for 300+0 blitz games")
     parser.add_argument("--no-model", action="store_true",
@@ -556,6 +586,13 @@ def main() -> int:
         print(f"Invalid packaged model: {exc}", file=sys.stderr)
         return 2
     experimental_scores = score_pgn_games(eval_df, pretrained, player=args.player)
+    try:
+        human_model = None if args.no_human_prior else load_human_prior()
+    except (OSError, ValueError) as exc:
+        print(f"Invalid bundled human-choice model: {exc}", file=sys.stderr)
+        return 2
+    human_report = scan_human_sequences(eval_df, human_model, player=args.player,
+                                        top_games=args.top_games)
     if args.reference:
         if not args.platform:
             print("--platform chesscom|lichess required with --reference", file=sys.stderr)
@@ -611,7 +648,9 @@ def main() -> int:
     print(f"  {assessment['interpretation']}")
     print()
     evidence = [game for game in all_evidence if game["candidate_count"] > 0][:args.top_games]
-    _print_move_evidence(evidence, use_color)
+    _print_human_sequences(human_report, use_color)
+    if human_model is None or args.technical:
+        _print_move_evidence(evidence, use_color)
     _print_pretrained_scores(experimental_scores, pretrained, use_color)
     if args.technical:
         _print_diagnostic_games(scored_view, args.top_games, use_color)
@@ -640,6 +679,7 @@ def main() -> int:
                     "game_scores": records(scored_view),
                     "move_evidence": evidence,
                     "history_assessment": assessment,
+                    "human_sequence_screening": human_report,
                     "screening_overview": screening,
                     "pretrained_game_scores": experimental_scores,
                 },
