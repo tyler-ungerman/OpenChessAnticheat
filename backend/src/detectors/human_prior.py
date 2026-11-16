@@ -95,7 +95,7 @@ def human_surprise_scores(top1: np.ndarray, human_p: np.ndarray) -> np.ndarray:
 def predict_human_top1(features: pd.DataFrame, model: dict) -> np.ndarray:
     if model.get("schema") != "openchess-human-choice-v1" or model.get("model_features") != FEATURE_NAMES:
         raise ValueError("Incompatible human choice model")
-    x = features[FEATURE_NAMES].to_numpy(dtype=float)
+    x = features[FEATURE_NAMES].to_numpy(dtype=float, copy=True)
     missing = ~np.isfinite(x)
     x[missing] = np.broadcast_to(np.asarray(model["impute"]), x.shape)[missing]
     x = (x - np.asarray(model["mean"])) / np.asarray(model["scale"])
