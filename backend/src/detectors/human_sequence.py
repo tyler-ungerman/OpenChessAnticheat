@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .human_prior import FEATURE_NAMES, frame_features, predict_human_top1, human_surprise_scores
+from .sequence_policy import informative_choice, peak_five_choice_window, WINDOW_MOVES
 
 MODEL_PATH = Path(__file__).resolve().parents[2] / "models" / "human_prior_v1.json"
 SUPPORTED_CONTROLS = {"180", "180+0", "180+2", "300", "300+0", "300+3"}
@@ -87,15 +88,19 @@ def scan_human_sequences(eval_df: pd.DataFrame, model: dict | None,
         if len(adjusted) < WINDOW_MOVES:
             continue
 
-        # The maximum average likelihood ratio of contiguous player decisions
-        # is the same fixed statistic evaluated against the real ChessFraud holdouts.
-        means = np.convolve(adjusted, np.ones(WINDOW_MOVES)/WINDOW_MOVES, mode="valid")
-        start = int(np.argmax(means))
+        quiet = np.asarray([
+            informative_choice(fen, uci)
+            for fen, uci in zip(valid["fen_before"], valid["move_uci"])
+        ], dtype=bool)
+        selected = peak_five_choice_window(adjusted, is_top, human_p, quiet)
+        output["eligible_games"] += 1
+        output["scored_moves"] += len(valid)
+        if selected is None:
+            continue
+        start = selected["start"]
         block = valid.iloc[start:start + WINDOW_MOVES]
         p_block = human_p[start:start + WINDOW_MOVES]
         top_block = is_top[start:start + WINDOW_MOVES]
-        output["eligible_games"] += 1
-        output["scored_moves"] += len(valid)
 
         displayed_moves = []
         for i, (_, row) in enumerate(block.iterrows()):
@@ -105,6 +110,7 @@ def scan_human_sequences(eval_df: pd.DataFrame, model: dict | None,
                 "move_number": move_number, "san": played, "uci": row.get("move_uci"),
                 "fen_before": row.get("fen_before"),
                 "is_engine_top1": bool(top_block[i]),
+                "is_informative_quiet_move": bool(selected["informative_mask"][i]),
                 "human_top1_probability": round(float(p_block[i]), 3),
                 "time_spent_seconds": (float(row["time_spent"])
                                        if pd.notna(row.get("time_spent")) else None),
@@ -112,9 +118,12 @@ def scan_human_sequences(eval_df: pd.DataFrame, model: dict | None,
         output["ranked_games"].append({
             "game_id": game_id, "player": username,
             "time_control": tc, "date": game["date"].iloc[0] if "date" in game else None,
-            "sequence_score": round(float(means[start]), 3),
-            "engine_first_count": int(top_block.sum()),
-            "human_expected_engine_first": round(float(p_block.sum()), 2),
+            "sequence_score": round(float(selected["score"]), 3),
+            "engine_first_count": selected["top1_informative"],
+            "informative_moves": selected["informative_count"],
+            "excluded_forcing_moves": WINDOW_MOVES - selected["informative_count"],
+            "human_expected_engine_first": round(selected["expected_top1_informative"], 2),
+            "windows_examined": selected["windows_examined"],
             "start_move": displayed_moves[0]["move_number"],
             "end_move": displayed_moves[-1]["move_number"],
             "moves": displayed_moves,
